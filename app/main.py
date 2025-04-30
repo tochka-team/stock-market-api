@@ -4,6 +4,7 @@ import uvicorn
 
 from fastapi import FastAPI
 
+from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.db.connection import check_db_connection, close_db_connection
 
@@ -50,6 +51,9 @@ app = FastAPI(
 async def ping():
     logger.info("Ping received")
     return {"message": "pong"}
+
+
+app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
 if __name__ == "__main__":
