@@ -1,6 +1,6 @@
 # app/api/routers/public.py
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncConnection
 from typing import List
 
@@ -9,6 +9,8 @@ from app.schemas.instrument import Instrument
 from app.services.instrument_service import get_all_instruments
 from app.schemas.user import NewUser, User
 from app.services.auth_service import AuthService
+from app.schemas.orderbook import L2OrderBook
+from app.services.orderbook_service import OrderBookService
 
 
 router = APIRouter(tags=["Public Data"])
@@ -53,5 +55,37 @@ async def register(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not register user.",
+        )
+
+@router.get(
+    "/orderbook/{ticker}",
+    response_model=L2OrderBook,
+    summary="Get Orderbook",
+    description="Текущие заявки"
+)
+async def get_orderbook(
+    ticker: str,
+    limit: int = Query(default=10, ge=1, le=25),
+    db: AsyncConnection = Depends(get_db_connection)
+) -> L2OrderBook:
+    """
+    Получить стакан заявок для указанного тикера
+    """
+    try:
+        orderbook_service = OrderBookService(db)
+        orderbook = await orderbook_service.get_orderbook(ticker, limit)
+        
+        if not orderbook:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Orderbook for ticker {ticker} not found"
+            )
+        
+        return orderbook
+    except Exception as e:
+        print(f"Error getting orderbook: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not fetch orderbook"
         )
 
