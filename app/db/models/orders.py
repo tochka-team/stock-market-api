@@ -1,28 +1,60 @@
-from sqlalchemy import Column, String, Integer, DateTime, Enum
-from sqlalchemy.sql import func
 import uuid
 
-from app.db.base_class import Base
+from sqlalchemy import UUID as GenericUUID
+from sqlalchemy import Column, DateTime
+from sqlalchemy import Enum as SqlEnum
+from sqlalchemy import Index, Integer, String, Table, func
 
-class OrderStatus(str, Enum):
-    NEW = "NEW"
-    EXECUTED = "EXECUTED"
-    PARTIALLY_EXECUTED = "PARTIALLY_EXECUTED"
-    CANCELLED = "CANCELLED"
+from app.db.metadata import metadata
+from app.schemas.order import Direction, OrderStatus
 
-class OrderDirection(str, Enum):
-    BUY = "BUY"
-    SELL = "SELL"
-
-class Order(Base):
-    __tablename__ = "orders"
-
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, nullable=False)
-    ticker = Column(String, nullable=False)
-    direction = Column(String, nullable=False)  # BUY или SELL
-    qty = Column(Integer, nullable=False)
-    price = Column(Integer, nullable=True)  # null для рыночных заявок
-    status = Column(String, nullable=False, default=OrderStatus.NEW)
-    filled = Column(Integer, nullable=False, default=0)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+orders_table = Table(
+    "orders",
+    metadata,
+    Column(
+        "id",
+        GenericUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    ),
+    Column("user_id", GenericUUID(as_uuid=True), nullable=False, index=True),
+    Column("ticker", String(20), nullable=False),
+    Column(
+        "direction",
+        SqlEnum(Direction, name="order_direction_enum", create_type=False),
+        nullable=False,
+    ),
+    Column("qty", Integer, nullable=False),
+    Column("price", Integer, nullable=True),
+    Column(
+        "status",
+        SqlEnum(OrderStatus, name="order_status_enum", create_type=False),
+        nullable=False,
+        default=OrderStatus.NEW,
+    ),
+    Column("filled_qty", Integer, nullable=False, default=0, server_default="0"),
+    Column(
+        "timestamp",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    ),
+    Column(
+        "updated_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    ),
+    # Составной индекс для matching engine и стакана заявок
+    # Важно: порядок колонок в индексе имеет значение!
+    # Обычно: тикер, статус (чтобы отфильтровать неактивные), направление, цена (для сортировки).
+    Index(
+        "ix_orders_active_for_matching",
+        "ticker",
+        "status",
+        "direction",
+        "price",
+    ),
+)

@@ -1,14 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
-import uvicorn
 
+import uvicorn
 from fastapi import FastAPI
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.db.connection import check_db_connection, close_db_connection
-from app.db import init_db
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,10 +25,6 @@ async def lifespan(app: FastAPI):
         logger.info("Checking database connection...")
         await check_db_connection()
         logger.info("Database connection checked successfully.")
-        
-        logger.info("Initializing database...")
-        await init_db()
-        logger.info("Database initialized successfully.")
     except ConnectionError as e:
         logger.error(f"FATAL: Database connection failed during startup: {e}")
         logger.warning("Proceeding without guaranteed database connection...")
@@ -48,7 +42,7 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
@@ -63,9 +57,4 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 
 if __name__ == "__main__":
     print("Starting Uvicorn server directly...")
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True
-    )
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

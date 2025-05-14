@@ -1,6 +1,7 @@
+from typing import List
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
-from typing import List
 
 from app.db.models.instruments import instruments_table
 from app.schemas.instrument import Instrument

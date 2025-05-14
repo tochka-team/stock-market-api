@@ -1,28 +1,24 @@
-# alembic/env.py
-
 import asyncio
-import sys
 import os
+import sys
 from logging.config import fileConfig
 
 from dotenv import load_dotenv
-
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
-from alembic import context
 
-from app.db.metadata import metadata as target_metadata
 import app.db.models
+from alembic import context
+from app.db.metadata import metadata as target_metadata
 
-
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-dotenv_path = os.path.join(project_root, '.env')
+dotenv_path = os.path.join(project_root, ".env")
 if os.path.exists(dotenv_path):
     print(f"Loading environment variables from: {dotenv_path}")
-    load_dotenv(dotenv_path=dotenv_path)
+    load_dotenv(dotenv_path=dotenv_path, override=True, verbose=True)
 else:
     print(f".env file not found at {dotenv_path}, relying on environment variables.")
 
@@ -61,10 +57,7 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection):
-    context.configure(
-        connection=connection,
-        **configure_opts
-    )
+    context.configure(connection=connection, **configure_opts)
 
     with context.begin_transaction():
         context.run_migrations()
@@ -81,6 +74,7 @@ async def run_migrations_online() -> None:
         await connection.run_sync(do_run_migrations)
 
     await connectable.dispose()
+
 
 if context.is_offline_mode():
     print("Running migrations in offline mode...")
