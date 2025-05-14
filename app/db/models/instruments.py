@@ -7,7 +7,7 @@ instruments_table = Table(
     metadata,
     Column("id", Integer, primary_key=True),
     Column("ticker", String(20), nullable=False, unique=True, index=True),
-    Column("name", String(100), nullable=True),
+    Column("name", String(100), nullable=False),
     Column("description", String(255), nullable=True),
     Column(
         "created_at",
