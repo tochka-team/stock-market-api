@@ -13,7 +13,8 @@ if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path=dotenv_path, override=True, verbose=True)
 else:
     print(
-        f"WARNING: .env file not found at {dotenv_path}. Relying on system environment variables.")
+        f"WARNING: .env file not found at {dotenv_path}. Relying on system environment variables."
+    )
 
 
 class Settings(BaseSettings):
@@ -22,7 +23,10 @@ class Settings(BaseSettings):
     Pydantic-settings теперь будет читать переменные из окружения,
     которое мы только что (возможно) пополнили/перезаписали из .env.
     """
-    DATABASE_URL: str = "sqlite+aiosqlite:///./default_db_should_not_be_used.db"  # Запасное
+
+    DATABASE_URL: str = (
+        "sqlite+aiosqlite:///./default_db_should_not_be_used.db"  # Запасное
+    )
 
     API_V1_STR: str = "/api/v1"
 
@@ -35,10 +39,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding='utf-8',
-        extra='ignore',
-        case_sensitive=False
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", case_sensitive=False
     )
 
 
@@ -46,5 +47,6 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     settings_instance = Settings()
     print(
-        f"DEBUG (get_settings): DATABASE_URL from Settings instance: '{settings_instance.DATABASE_URL}'")
+        f"DEBUG (get_settings): DATABASE_URL from Settings instance: '{settings_instance.DATABASE_URL}'"
+    )
     return settings_instance

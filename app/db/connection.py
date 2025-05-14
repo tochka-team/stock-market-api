@@ -2,8 +2,7 @@ import logging
 from typing import AsyncGenerator
 
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import (AsyncConnection, AsyncEngine,
-                                    create_async_engine)
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from app.core.config import get_settings
 
@@ -25,8 +24,7 @@ async def get_db_connection() -> AsyncGenerator[AsyncConnection, None]:
             try:
                 yield connection
             except SQLAlchemyError as e:
-                logger.error(
-                    f"SQLAlchemy error during request: {e}", exc_info=True)
+                logger.error(f"SQLAlchemy error during request: {e}", exc_info=True)
                 raise
             finally:
                 logger.debug(f"Connection released back to pool: {connection}")
@@ -35,7 +33,9 @@ async def get_db_connection() -> AsyncGenerator[AsyncConnection, None]:
         raise ConnectionError("Could not connect to the database.") from e
     except Exception as e:
         logger.error(
-            f"An unexpected error occurred during DB connection handling: {e}", exc_info=True)
+            f"An unexpected error occurred during DB connection handling: {e}",
+            exc_info=True,
+        )
         raise
 
 
@@ -46,7 +46,8 @@ async def check_db_connection():
     except Exception as e:
         logger.error(f"Database connection failed: {e}", exc_info=True)
         raise ConnectionError(
-            "Could not connect to the database during startup check.") from e
+            "Could not connect to the database during startup check."
+        ) from e
 
 
 async def close_db_connection():

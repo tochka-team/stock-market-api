@@ -20,11 +20,9 @@ router = APIRouter(tags=["Public Data"])
     "/instrument",
     response_model=List[Instrument],
     summary="Get Available Instruments",
-    description="Получение списка всех доступных для торговли инструментов."
+    description="Получение списка всех доступных для торговли инструментов.",
 )
-async def list_instruments(
-    db: AsyncConnection = Depends(get_db_connection)
-):
+async def list_instruments(db: AsyncConnection = Depends(get_db_connection)):
     try:
         instruments = await get_all_instruments(db=db)
         return instruments
@@ -35,6 +33,7 @@ async def list_instruments(
             detail="Could not fetch instruments from the database.",
         )
 
+
 # ручка для решистрации пользователя. Было принято решение ввести её в файл public.py
 
 
@@ -42,11 +41,10 @@ async def list_instruments(
     "/register",
     response_model=User,
     summary="Register User",
-    description="Регистрация пользователя в платформе. Обязательна для совершения сделок"
+    description="Регистрация пользователя в платформе. Обязательна для совершения сделок",
 )
 async def register(
-    user_data: NewUser,
-    db: AsyncConnection = Depends(get_db_connection)
+    user_data: NewUser, db: AsyncConnection = Depends(get_db_connection)
 ):
     try:
         auth_service = AuthService(db)
@@ -64,12 +62,12 @@ async def register(
     "/orderbook/{ticker}",
     response_model=L2OrderBook,
     summary="Get Orderbook",
-    description="Текущие заявки"
+    description="Текущие заявки",
 )
 async def get_orderbook(
     ticker: str,
     limit: int = Query(default=10, ge=1, le=25),
-    db: AsyncConnection = Depends(get_db_connection)
+    db: AsyncConnection = Depends(get_db_connection),
 ) -> L2OrderBook:
     """
     Получить стакан заявок для указанного тикера
@@ -81,7 +79,7 @@ async def get_orderbook(
         if not orderbook:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Orderbook for ticker {ticker} not found"
+                detail=f"Orderbook for ticker {ticker} not found",
             )
 
         return orderbook
@@ -89,5 +87,5 @@ async def get_orderbook(
         print(f"Error getting orderbook: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not fetch orderbook"
+            detail="Could not fetch orderbook",
         )

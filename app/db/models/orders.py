@@ -19,19 +19,34 @@ orders_table = Table(
     ),
     Column("user_id", GenericUUID(as_uuid=True), nullable=False, index=True),
     Column("ticker", String(20), nullable=False),
-    Column("direction", SqlEnum(Direction, name="order_direction_enum",
-           create_type=False), nullable=False),
+    Column(
+        "direction",
+        SqlEnum(Direction, name="order_direction_enum", create_type=False),
+        nullable=False,
+    ),
     Column("qty", Integer, nullable=False),
     Column("price", Integer, nullable=True),
-    Column("status", SqlEnum(OrderStatus, name="order_status_enum",
-           create_type=False), nullable=False, default=OrderStatus.NEW),
-    Column("filled_qty", Integer, nullable=False,
-           default=0, server_default="0"),
-    Column("timestamp", DateTime(timezone=True),
-           server_default=func.now(), nullable=False, index=True),
-    Column("updated_at", DateTime(timezone=True),
-           server_default=func.now(), onupdate=func.now(), nullable=False),
-
+    Column(
+        "status",
+        SqlEnum(OrderStatus, name="order_status_enum", create_type=False),
+        nullable=False,
+        default=OrderStatus.NEW,
+    ),
+    Column("filled_qty", Integer, nullable=False, default=0, server_default="0"),
+    Column(
+        "timestamp",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    ),
+    Column(
+        "updated_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    ),
     # Составной индекс для matching engine и стакана заявок
     # Важно: порядок колонок в индексе имеет значение!
     # Обычно: тикер, статус (чтобы отфильтровать неактивные), направление, цена (для сортировки).

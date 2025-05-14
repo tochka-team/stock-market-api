@@ -26,12 +26,13 @@ class AuthService:
             logger.info(f"Generated API key for user {name}")
 
             # Create new user
-            query = insert(users_table).values(
-                id=user_id,
-                name=name,
-                api_key=api_key,
-                role=UserRole.USER.value
-            ).returning(users_table)
+            query = (
+                insert(users_table)
+                .values(
+                    id=user_id, name=name, api_key=api_key, role=UserRole.USER.value
+                )
+                .returning(users_table)
+            )
 
             logger.info("Executing insert query")
             result = await self.db.execute(query)
@@ -42,10 +43,7 @@ class AuthService:
             logger.info(f"Successfully created user with id {row['id']}")
 
             return User(
-                id=row['id'],
-                name=row['name'],
-                role=row['role'],
-                api_key=row['api_key']
+                id=row["id"], name=row["name"], role=row["role"], api_key=row["api_key"]
             )
         except Exception as e:
             logger.error(f"Error registering user: {str(e)}", exc_info=True)
@@ -66,10 +64,9 @@ class AuthService:
                     id=str(user.id),
                     name=user.name,
                     role=user.role,
-                    api_key=user.api_key
+                    api_key=user.api_key,
                 )
             return None
         except Exception as e:
-            logger.error(
-                f"Error getting user by API key: {str(e)}", exc_info=True)
+            logger.error(f"Error getting user by API key: {str(e)}", exc_info=True)
             raise

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class UserRole(str, Enum):
     """Роли пользователей"""
+
     USER = "USER"
     ADMIN = "ADMIN"
 
