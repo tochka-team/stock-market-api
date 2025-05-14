@@ -1,7 +1,14 @@
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 from uuid import UUID
+from enum import Enum
 from app.db.models.users import UserRole
+
+
+class UserRole(str, Enum):
+    """Роли пользователей"""
+    USER = "USER"
+    ADMIN = "ADMIN"
 
 class NewUser(BaseModel):
     name: str = Field(..., min_length=3, description="Имя пользователя")
@@ -14,5 +21,3 @@ class User(UserBase):
     id: UUID
     api_key: str = Field(..., description="API ключ пользователя")
     model_config = ConfigDict(from_attributes=True)
-
-    

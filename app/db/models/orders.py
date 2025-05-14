@@ -1,28 +1,57 @@
-from sqlalchemy import Column, String, Integer, DateTime, Enum
-from sqlalchemy.sql import func
+# app/db/models/orders.py
 import uuid
+from sqlalchemy import Table, Column, String, Integer, DateTime, func, Index, Enum as SqlEnum
+from sqlalchemy import UUID as GenericUUID
 
-from app.db.base_class import Base
+from app.db.metadata import metadata
+from app.schemas.order import OrderStatus, OrderDirection
+import enum
 
-class OrderStatus(str, Enum):
+class DBOrderStatus(str, enum.Enum):
     NEW = "NEW"
     EXECUTED = "EXECUTED"
     PARTIALLY_EXECUTED = "PARTIALLY_EXECUTED"
     CANCELLED = "CANCELLED"
 
-class OrderDirection(str, Enum):
+class DBOrderDirection(str, enum.Enum):
     BUY = "BUY"
     SELL = "SELL"
 
-class Order(Base):
-    __tablename__ = "orders"
 
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, nullable=False)
-    ticker = Column(String, nullable=False)
-    direction = Column(String, nullable=False)  # BUY или SELL
-    qty = Column(Integer, nullable=False)
-    price = Column(Integer, nullable=True)  # null для рыночных заявок
-    status = Column(String, nullable=False, default=OrderStatus.NEW)
-    filled = Column(Integer, nullable=False, default=0)
-    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+orders_table = Table(
+    "orders",
+    metadata,
+    Column(
+        "id",
+        GenericUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    ),
+    Column("user_id", PG_UUID(as_uuid=True), nullable=False, index=True),
+    Column("ticker", String(20), nullable=False),
+    Column("direction", SqlEnum(DBOrderDirection, name="order_direction_enum", create_type=True), nullable=False),
+    Column("qty", Integer, nullable=False),
+    Column("price", Integer, nullable=True),
+    Column("status", SqlEnum(DBOrderStatus, name="order_status_enum", create_type=True), nullable=False, default=DBOrderStatus.NEW),
+    Column("filled_qty", Integer, nullable=False, default=0, server_default="0"),
+    Column(
+        "timestamp",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    ),
+    Column(
+        "updated_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    ),
+    Index(
+        "ix_orders_active_for_matching",
+        "ticker",
+        "direction",
+        "status",
+        "price",
+    ),
+)
