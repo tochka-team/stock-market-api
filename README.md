@@ -68,7 +68,7 @@ git checkout -b название-ветки
 
 Сгенерируйте миграцию:
 
-```
+```bash
 alembic revision --autogenerate -m "albemic version description"
 ```
 
@@ -108,7 +108,7 @@ git commit -m "feat: Реализован эндпоинт получения б
 
 7. Отправьте вашу ветку в удаленный репозиторий:
 
-```
+```bash
 git push
 ```
 
