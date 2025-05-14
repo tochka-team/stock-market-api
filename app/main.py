@@ -7,7 +7,6 @@ from fastapi import FastAPI
 from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.db.connection import check_db_connection, close_db_connection
-from app.db import init_db
 
 
 logging.basicConfig(level=logging.INFO)
@@ -27,10 +26,6 @@ async def lifespan(app: FastAPI):
         logger.info("Checking database connection...")
         await check_db_connection()
         logger.info("Database connection checked successfully.")
-        
-        logger.info("Initializing database...")
-        await init_db()
-        logger.info("Database initialized successfully.")
     except ConnectionError as e:
         logger.error(f"FATAL: Database connection failed during startup: {e}")
         logger.warning("Proceeding without guaranteed database connection...")
