@@ -2,7 +2,7 @@ import uuid
 from enum import Enum
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict, conint
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 class Direction(str, Enum):
     BUY = "BUY"
@@ -55,5 +55,5 @@ class LimitOrderResponse(OrderBase):
     price: int
 
 class CreateOrderResponse(BaseModel):
-    success: bool = Field(default=True, const=True)
+    success: Literal[True] = True
     order_id: uuid.UUID

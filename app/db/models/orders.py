@@ -1,4 +1,3 @@
-# app/db/models/orders.py
 import uuid
 from sqlalchemy import Table, Column, String, Integer, DateTime, func, Index, Enum as SqlEnum
 from sqlalchemy import UUID as GenericUUID

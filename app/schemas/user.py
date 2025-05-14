@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 from uuid import UUID
 from enum import Enum
-from app.db.models.users import UserRole
 
 
 class UserRole(str, Enum):

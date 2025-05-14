@@ -1,7 +1,7 @@
-# app/db/models/users.py
 import uuid
+
 from sqlalchemy import Table, Column, String, Enum as SqlEnum, DateTime, func
-from sqlalchemy import UUID as GenericUUID # Используем GenericUUID
+from sqlalchemy import UUID as GenericUUID
 
 from app.db.metadata import metadata
 from app.schemas.user import UserRole
@@ -11,7 +11,7 @@ users_table = Table(
     metadata,
     Column(
         "id",
-        GenericUUID(as_uuid=True), # Заменено на GenericUUID
+        GenericUUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
     ),
