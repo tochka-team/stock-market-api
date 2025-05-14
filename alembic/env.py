@@ -1,5 +1,3 @@
-# alembic/env.py
-
 import asyncio
 import sys
 import os
@@ -22,7 +20,7 @@ if project_root not in sys.path:
 dotenv_path = os.path.join(project_root, '.env')
 if os.path.exists(dotenv_path):
     print(f"Loading environment variables from: {dotenv_path}")
-    load_dotenv(dotenv_path=dotenv_path)
+    load_dotenv(dotenv_path=dotenv_path, override=True, verbose=True)
 else:
     print(f".env file not found at {dotenv_path}, relying on environment variables.")
 

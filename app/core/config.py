@@ -1,18 +1,31 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
 from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
+dotenv_path = os.path.join(project_root, ".env")
+
+if os.path.exists(dotenv_path):
+    print(f"INFO: Loading .env file from: {dotenv_path}")
+    load_dotenv(dotenv_path=dotenv_path, override=True, verbose=True)
+else:
+    print(f"WARNING: .env file not found at {dotenv_path}. Relying on system environment variables.")
 
 
 class Settings(BaseSettings):
     """
     Класс для хранения настроек приложения.
-    Значения по умолчанию берутся из переменных окружения или файла .env.
+    Pydantic-settings теперь будет читать переменные из окружения,
+    которое мы только что (возможно) пополнили/перезаписали из .env.
     """
-
-    DATABASE_URL: str = "sqlite+aiosqlite:///./stock_market.db"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./default_db_should_not_be_used.db" # Запасное
 
     API_V1_STR: str = "/api/v1"
 
     PROJECT_NAME: str = "Toy Exchange API"
+
     PROJECT_VERSION: str = "0.1.0"
 
     ADMIN_API_TOKEN: str = "supersecretadmintoken"
@@ -22,11 +35,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding='utf-8',
-        extra='ignore'
+        extra='ignore',
+        case_sensitive=False
     )
 
 
 @lru_cache(maxsize=None)
 def get_settings() -> Settings:
-    """Возвращает экземпляр настроек приложения."""
-    return Settings()
+    settings_instance = Settings()
+    print(f"DEBUG (get_settings): DATABASE_URL from Settings instance: '{settings_instance.DATABASE_URL}'")
+    return settings_instance
