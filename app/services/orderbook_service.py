@@ -1,11 +1,12 @@
-from typing import Optional, List, Dict, Any
-from sqlalchemy import select, func, desc, asc
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from app.schemas.orderbook import L2OrderBook, Level
 from app.db.models.instruments import instruments_table
 from app.db.models.orders import orders_table
 from app.schemas.order import Direction, OrderStatus
+from app.schemas.orderbook import L2OrderBook, Level
 
 
 class OrderBookService:

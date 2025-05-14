@@ -1,7 +1,9 @@
 import uuid
 
-from sqlalchemy import Table, Column, String, Enum as SqlEnum, DateTime, func
 from sqlalchemy import UUID as GenericUUID
+from sqlalchemy import Column, DateTime
+from sqlalchemy import Enum as SqlEnum
+from sqlalchemy import String, Table, func
 
 from app.db.metadata import metadata
 from app.schemas.user import UserRole

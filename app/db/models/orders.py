@@ -1,9 +1,12 @@
 import uuid
-from sqlalchemy import Table, Column, String, Integer, DateTime, func, Index, Enum as SqlEnum
+
 from sqlalchemy import UUID as GenericUUID
+from sqlalchemy import Column, DateTime
+from sqlalchemy import Enum as SqlEnum
+from sqlalchemy import Index, Integer, String, Table, func
 
 from app.db.metadata import metadata
-from app.schemas.order import OrderStatus, Direction
+from app.schemas.order import Direction, OrderStatus
 
 orders_table = Table(
     "orders",

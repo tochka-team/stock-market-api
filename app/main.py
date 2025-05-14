@@ -1,13 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
-import uvicorn
 
+import uvicorn
 from fastapi import FastAPI
 
 from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.db.connection import check_db_connection, close_db_connection
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -1,17 +1,15 @@
 import asyncio
-import sys
 import os
+import sys
 from logging.config import fileConfig
 
 from dotenv import load_dotenv
-
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
-from alembic import context
 
-from app.db.metadata import metadata as target_metadata
 import app.db.models
-
+from alembic import context
+from app.db.metadata import metadata as target_metadata
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:

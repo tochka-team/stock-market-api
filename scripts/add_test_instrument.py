@@ -2,8 +2,10 @@
 
 import asyncio
 import logging
-from sqlalchemy import text
 from uuid import uuid4
+
+from sqlalchemy import text
+
 from app.db.connection import async_engine
 
 logging.basicConfig(level=logging.INFO)

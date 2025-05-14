@@ -1,11 +1,11 @@
-import uuid
 import logging
+import uuid
 from typing import Optional
 
-from sqlalchemy import select, insert
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.users import users_table, UserRole
+from app.db.models.users import UserRole, users_table
 from app.schemas.user import User
 
 logger = logging.getLogger(__name__)

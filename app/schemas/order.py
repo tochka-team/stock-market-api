@@ -1,8 +1,9 @@
 import uuid
-from enum import Enum
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict, conint
-from typing import List, Optional, Literal
+from enum import Enum
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, conint
 
 
 class Direction(str, Enum):

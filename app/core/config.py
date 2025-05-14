@@ -1,7 +1,8 @@
 import os
 from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))

@@ -1,17 +1,17 @@
 # app/api/routers/public.py
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncConnection
 from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.connection import get_db_connection
 from app.schemas.instrument import Instrument
-from app.services.instrument_service import get_all_instruments
+from app.schemas.orderbook import L2OrderBook
 from app.schemas.user import NewUser, User
 from app.services.auth_service import AuthService
-from app.schemas.orderbook import L2OrderBook
+from app.services.instrument_service import get_all_instruments
 from app.services.orderbook_service import OrderBookService
-
 
 router = APIRouter(tags=["Public Data"])
 
