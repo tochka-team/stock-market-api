@@ -16,7 +16,8 @@ users_table = Table(
         default=uuid.uuid4,
     ),
     Column("name", String(100), nullable=False),
-    Column("role", SqlEnum(UserRole, name="user_role_enum", create_type=False), nullable=False, default=UserRole.USER),
+    Column("role", SqlEnum(UserRole, name="user_role_enum",
+           create_type=False), nullable=False, default=UserRole.USER),
     Column("api_key", String(100), nullable=False, unique=True, index=True),
     Column(
         "created_at",

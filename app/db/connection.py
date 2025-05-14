@@ -24,7 +24,8 @@ async def get_db_connection() -> AsyncGenerator[AsyncConnection, None]:
             try:
                 yield connection
             except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy error during request: {e}", exc_info=True)
+                logger.error(
+                    f"SQLAlchemy error during request: {e}", exc_info=True)
                 raise
             finally:
                 logger.debug(f"Connection released back to pool: {connection}")
@@ -32,7 +33,8 @@ async def get_db_connection() -> AsyncGenerator[AsyncConnection, None]:
         logger.error(f"Failed to acquire DB connection: {e}", exc_info=True)
         raise ConnectionError("Could not connect to the database.") from e
     except Exception as e:
-        logger.error(f"An unexpected error occurred during DB connection handling: {e}", exc_info=True)
+        logger.error(
+            f"An unexpected error occurred during DB connection handling: {e}", exc_info=True)
         raise
 
 
@@ -42,7 +44,8 @@ async def check_db_connection():
             logger.info("Database connection successful.")
     except Exception as e:
         logger.error(f"Database connection failed: {e}", exc_info=True)
-        raise ConnectionError("Could not connect to the database during startup check.") from e
+        raise ConnectionError(
+            "Could not connect to the database during startup check.") from e
 
 
 async def close_db_connection():

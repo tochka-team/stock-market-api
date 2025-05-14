@@ -36,6 +36,8 @@ async def list_instruments(
         )
 
 # ручка для решистрации пользователя. Было принято решение ввести её в файл public.py
+
+
 @router.post(
     "/register",
     response_model=User,
@@ -57,6 +59,7 @@ async def register(
             detail="Could not register user.",
         )
 
+
 @router.get(
     "/orderbook/{ticker}",
     response_model=L2OrderBook,
@@ -74,13 +77,13 @@ async def get_orderbook(
     try:
         orderbook_service = OrderBookService(db)
         orderbook = await orderbook_service.get_orderbook(ticker, limit)
-        
+
         if not orderbook:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Orderbook for ticker {ticker} not found"
             )
-        
+
         return orderbook
     except Exception as e:
         print(f"Error getting orderbook: {e}")
@@ -88,4 +91,3 @@ async def get_orderbook(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not fetch orderbook"
         )
-

@@ -9,12 +9,15 @@ class UserRole(str, Enum):
     USER = "USER"
     ADMIN = "ADMIN"
 
+
 class NewUser(BaseModel):
     name: str = Field(..., min_length=3, description="Имя пользователя")
+
 
 class UserBase(BaseModel):
     name: str = Field(..., description="Имя пользователя")
     role: UserRole = Field(None, description="Роль пользователя")
+
 
 class User(UserBase):
     id: UUID
