@@ -1,18 +1,34 @@
-from sqlalchemy import Table, Column, String
-import enum
+# app/db/models/users.py
 import uuid
+from sqlalchemy import Table, Column, String, Enum as SqlEnum, DateTime, func
+from sqlalchemy import UUID as GenericUUID # Используем GenericUUID
 
 from app.db.metadata import metadata
-
-class UserRole(str, enum.Enum):
-    USER = "USER"
-    ADMIN = "ADMIN"
+from app.schemas.user import UserRole
 
 users_table = Table(
     "users",
     metadata,
-    Column("id", String, primary_key=True),
+    Column(
+        "id",
+        GenericUUID(as_uuid=True), # Заменено на GenericUUID
+        primary_key=True,
+        default=uuid.uuid4,
+    ),
     Column("name", String(100), nullable=False),
-    Column("role", String(10), nullable=False, default=UserRole.USER.value),
-    Column("api_key", String(100), nullable=False, unique=True, index=True)
+    Column("role", SqlEnum(UserRole, name="user_role_enum", create_type=False), nullable=False, default=UserRole.USER),
+    Column("api_key", String(100), nullable=False, unique=True, index=True),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    ),
+    Column(
+        "updated_at",
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    ),
 )
