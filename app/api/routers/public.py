@@ -6,10 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from app.db.connection import get_db_connection
 from app.schemas.instrument import Instrument
 from app.schemas.orderbook import L2OrderBook
+from app.schemas.transaction import Transaction
 from app.schemas.user import NewUser, User
 from app.services.auth_service import AuthService
 from app.services.instrument_service import InstrumentService
 from app.services.orderbook_service import OrderBookService
+from app.services.transaction_service import TransactionService
 
 router = APIRouter(tags=["Public Data"])
 
@@ -84,4 +86,34 @@ async def get_orderbook(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not fetch orderbook",
+        )
+
+
+@router.get(
+    "/transactions/{ticker}",
+    response_model=List[Transaction],
+    summary="Get Transaction History",
+    description="Получение истории сделок для указанного тикера.",
+)
+async def get_transaction_history(
+    ticker: str,
+    limit: int = Query(default=10, ge=1, le=100),
+    db: AsyncConnection = Depends(get_db_connection),
+):
+    """
+    Эндпоинт для получения истории сделок по тикеру.
+    - **ticker**: Тикер инструмента (например, "AAPL").
+    - **limit**: Максимальное количество возвращаемых транзакций.
+    """
+    transaction_service = TransactionService(db)
+    try:
+        transactions = await transaction_service.get_transactions_by_ticker(
+            ticker=ticker, limit=limit
+        )
+        return transactions
+    except Exception as e:
+        print(f"API Error - get_transaction_history for {ticker}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while fetching transaction history.",
         )
