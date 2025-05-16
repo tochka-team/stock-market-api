@@ -1,4 +1,3 @@
-# app/services/instrument_service.py
 from typing import List
 
 from sqlalchemy import delete, insert, select

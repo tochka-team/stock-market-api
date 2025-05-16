@@ -1,13 +1,11 @@
 import logging
 import uuid
+from typing import Dict
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from app.db.models.balances import user_cash_balances_table
-from app.db.models.orders import orders_table
-from app.schemas.balance import AssetBalance, BalanceResponse
-from app.schemas.order import Direction, OrderStatus
+from app.db.models.balances import balances_table
 
 logger = logging.getLogger(__name__)
 
@@ -16,127 +14,99 @@ class BalanceService:
     def __init__(self, db: AsyncConnection):
         self.db = db
 
-    async def _ensure_cash_balance_record(self, user_id: uuid.UUID) -> None:
-        select_stmt = select(user_cash_balances_table.c.id).where(
-            user_cash_balances_table.c.user_id == user_id
+    async def get_user_balance(self, user_id: uuid.UUID) -> Dict[str, int]:
+        """
+        Получает все балансы пользователя (денежные и активы) из таблицы `balances`.
+        Возвращает словарь, где ключ - тикер, значение - количество.
+        Например: {"RUB": 10000, "AAPL": 5, "MEMCOIN": 1000}
+        """
+        logger.debug(f"Fetching all balances for user_id: {user_id}")
+
+        stmt = select(balances_table.c.ticker, balances_table.c.amount).where(
+            balances_table.c.user_id == user_id
         )
-        exists = await self.db.execute(select_stmt)
-        if not exists.scalar_one_or_none():
-            try:
-                insert_stmt = insert(user_cash_balances_table).values(
-                    user_id=user_id, amount=0
-                )
-                await self.db.execute(insert_stmt)
-                logger.info(f"Created initial cash balance record for user {user_id}")
-            except Exception as e:
-                logger.warning(
-                    f"Could not create initial balance record for user {user_id}, possibly already exists: {e}"
-                )
 
-    async def get_user_balance(self, user_id: uuid.UUID) -> BalanceResponse:
-        logger.debug(f"Fetching balance for user {user_id}")
-        cash_balance_stmt = select(user_cash_balances_table.c.amount).where(
-            user_cash_balances_table.c.user_id == user_id
-        )
-        cash_result = await self.db.execute(cash_balance_stmt)
-        cash_amount_scalar = cash_result.scalar_one_or_none()
-        total_cash = cash_amount_scalar if cash_amount_scalar is not None else 0
+        result = await self.db.execute(stmt)
+        user_balances_rows = result.mappings().all()
 
-        asset_balances: list[AssetBalance] = []
+        balances_dict: Dict[str, int] = {}
+        for row in user_balances_rows:
+            balances_dict[row["ticker"]] = row["amount"]
+        if "RUB" not in balances_dict:
+            balances_dict["RUB"] = 0
 
-        buy_stmt = (
-            select(
-                orders_table.c.ticker,
-                func.sum(orders_table.c.filled_qty).label("total_bought"),
-            )
-            .where(
-                orders_table.c.user_id == user_id,
-                orders_table.c.direction == Direction.BUY,
-                orders_table.c.status.in_(
-                    [OrderStatus.EXECUTED, OrderStatus.PARTIALLY_EXECUTED]
-                ),
-                orders_table.c.filled_qty > 0,
-            )
-            .group_by(orders_table.c.ticker)
-        )
-        buy_results = await self.db.execute(buy_stmt)
-        bought_assets = {
-            row.ticker: row.total_bought for row in buy_results.mappings().all()
-        }
+        logger.info(f"Fetched balances for user {user_id}: {balances_dict}")
+        return balances_dict
 
-        sell_stmt = (
-            select(
-                orders_table.c.ticker,
-                func.sum(orders_table.c.filled_qty).label("total_sold"),
-            )
-            .where(
-                orders_table.c.user_id == user_id,
-                orders_table.c.direction == Direction.SELL,
-                orders_table.c.status.in_(
-                    [OrderStatus.EXECUTED, OrderStatus.PARTIALLY_EXECUTED]
-                ),
-                orders_table.c.filled_qty > 0,
-            )
-            .group_by(orders_table.c.ticker)
-        )
-        sell_results = await self.db.execute(sell_stmt)
-        sold_assets = {
-            row.ticker: row.total_sold for row in sell_results.mappings().all()
-        }
-
-        all_involved_tickers = set(bought_assets.keys()) | set(sold_assets.keys())
-        for ticker_value in all_involved_tickers:
-            current_amount = bought_assets.get(ticker_value, 0) - sold_assets.get(
-                ticker_value, 0
-            )
-            if current_amount > 0:
-                asset_balances.append(
-                    AssetBalance(ticker=ticker_value, amount=current_amount)
-                )
-
-        logger.info(
-            f"Balance for user {user_id}: cash={total_cash}, assets_count={len(asset_balances)}"
-        )
-        return BalanceResponse(total_balance=total_cash, assets=asset_balances)
-
-    async def deposit_to_balance(
-        self, user_id: uuid.UUID, deposit_amount: int
-    ) -> BalanceResponse:
-        if deposit_amount <= 0:
-            logger.warning(
-                f"Attempt to deposit non-positive amount {deposit_amount} by user {user_id}"
-            )
+    async def admin_update_or_create_balance(
+        self,
+        user_id: uuid.UUID,
+        ticker: str,
+        change_amount: int,
+        operation: str = "deposit",
+    ) -> bool:
+        """
+        Административная функция для пополнения или списания баланса.
+        change_amount: положительное для пополнения, отрицательное для списания.
+        operation: "deposit" или "withdraw" для логирования и проверки.
+        """
+        if operation == "deposit" and change_amount <= 0:
             raise ValueError("Deposit amount must be positive.")
+        if operation == "withdraw" and change_amount <= 0:
+            raise ValueError("Withdrawal amount must be positive.")
 
-        logger.info(f"Processing deposit of {deposit_amount} for user {user_id}")
         async with self.db.begin():
-            select_stmt = select(user_cash_balances_table.c.id).where(
-                user_cash_balances_table.c.user_id == user_id
+            current_balance_stmt = select(balances_table.c.amount).where(
+                (balances_table.c.user_id == user_id)
+                & (balances_table.c.ticker == ticker)
             )
-            existing_user_balance_record = await self.db.execute(select_stmt)
+            current_balance_res = await self.db.execute(current_balance_stmt)
+            current_amount = current_balance_res.scalar_one_or_none()
 
-            if existing_user_balance_record.scalar_one_or_none():
+            if current_amount is not None:
+                new_amount = current_amount
+                if operation == "deposit":
+                    new_amount += change_amount
+                elif operation == "withdraw":
+                    if current_amount < change_amount:
+                        logger.warning(
+                            f"Insufficient balance for withdrawal: user {user_id}, ticker {ticker}, wants {change_amount}, has {current_amount}"
+                        )
+                        raise ValueError(
+                            f"Insufficient balance for ticker {ticker} to withdraw {change_amount}."
+                        )
+                    new_amount -= change_amount
+
                 update_stmt = (
-                    update(user_cash_balances_table)
-                    .where(user_cash_balances_table.c.user_id == user_id)
-                    .values(amount=user_cash_balances_table.c.amount + deposit_amount)
-                    .returning(user_cash_balances_table.c.amount)
+                    update(balances_table)
+                    .where(
+                        (balances_table.c.user_id == user_id)
+                        & (balances_table.c.ticker == ticker)
+                    )
+                    .values(amount=new_amount)
                 )
-                res = await self.db.execute(update_stmt)
-                new_bal = res.scalar_one()
+                await self.db.execute(update_stmt)
                 logger.info(
-                    f"Updated balance for user {user_id} to {new_bal} after deposit."
+                    f"Admin {operation}: Updated balance for user {user_id}, ticker {ticker} to {new_amount}"
                 )
             else:
-                insert_stmt = (
-                    insert(user_cash_balances_table)
-                    .values(user_id=user_id, amount=deposit_amount)
-                    .returning(user_cash_balances_table.c.amount)
+                if operation == "withdraw":
+                    logger.warning(
+                        f"Admin withdrawal attempt from non-existent balance: user {user_id}, ticker {ticker}"
+                    )
+                    raise ValueError(
+                        f"Cannot withdraw from non-existent balance for ticker {ticker}."
+                    )
+
+                insert_stmt = insert(balances_table).values(
+                    user_id=user_id,
+                    ticker=ticker,
+                    amount=change_amount,
+                    locked_amount=0,
                 )
-                res = await self.db.execute(insert_stmt)
-                new_bal = res.scalar_one()
+                await self.db.execute(insert_stmt)
                 logger.info(
-                    f"Created initial balance for user {user_id} with {new_bal} during deposit."
+                    f"Admin {operation}: Created balance for user {user_id}, ticker {ticker} with amount {change_amount}"
                 )
 
-        return await self.get_user_balance(user_id)
+        return True

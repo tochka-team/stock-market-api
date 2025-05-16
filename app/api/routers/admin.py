@@ -1,15 +1,16 @@
-# app/api/routers/admin.py
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from app.api.deps import get_current_admin_user
 from app.db.connection import get_db_connection
+from app.schemas.balance import AdminBalanceChangeRequest
 from app.schemas.common import OkResponse
 from app.schemas.instrument import Instrument
+from app.services.balance_service import BalanceService
 from app.services.instrument_service import InstrumentService
 
 router = APIRouter(
-    tags=["Admin Actions"],
-    # dependencies=[Depends(тут будет безопасность)]
+    tags=["Admin Actions"], dependencies=[Depends(get_current_admin_user)]
 )
 
 
@@ -32,7 +33,8 @@ async def add_instrument_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
-    except Exception:
+    except Exception as e:
+        print(f"Admin add_instrument_endpoint error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while adding the instrument.",
@@ -61,8 +63,69 @@ async def delete_instrument_endpoint(
         return OkResponse(success=True)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
+        print(f"Admin delete_instrument_endpoint error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while deleting the instrument.",
+        )
+
+
+@router.post(
+    "/balance/deposit",
+    response_model=OkResponse,
+    summary="Admin Deposit to User Balance",
+    description="Пополнение баланса указанного пользователя для указанного тикера.",
+    status_code=status.HTTP_200_OK,
+)
+async def admin_deposit_funds(
+    request_data: AdminBalanceChangeRequest,
+    db: AsyncConnection = Depends(get_db_connection),
+):
+    balance_service = BalanceService(db)
+    try:
+        await balance_service.admin_update_or_create_balance(
+            user_id=request_data.user_id,
+            ticker=request_data.ticker,
+            change_amount=request_data.amount,
+            operation="deposit",
+        )
+        return OkResponse(success=True)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        print(f"Admin deposit error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not process deposit.",
+        )
+
+
+@router.post(
+    "/balance/withdraw",
+    response_model=OkResponse,
+    summary="Admin Withdraw from User Balance",
+    description="Списание с баланса указанного пользователя для указанного тикера.",
+    status_code=status.HTTP_200_OK,
+)
+async def admin_withdraw_funds(
+    request_data: AdminBalanceChangeRequest,
+    db: AsyncConnection = Depends(get_db_connection),
+):
+    balance_service = BalanceService(db)
+    try:
+        await balance_service.admin_update_or_create_balance(
+            user_id=request_data.user_id,
+            ticker=request_data.ticker,
+            change_amount=request_data.amount,
+            operation="withdraw",
+        )
+        return OkResponse(success=True)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        print(f"Admin withdraw error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not process withdrawal.",
         )
