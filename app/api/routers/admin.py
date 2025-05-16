@@ -32,7 +32,7 @@ async def add_instrument_endpoint(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while adding the instrument.",
@@ -61,7 +61,7 @@ async def delete_instrument_endpoint(
         return OkResponse(success=True)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while deleting the instrument.",

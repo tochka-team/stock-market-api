@@ -1,30 +1,47 @@
-import logging  # Рекомендуется добавить логирование
+import logging
+from typing import Optional
 
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security.api_key import APIKeyHeader
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.connection import get_db_connection
-from app.schemas.user import User  # Убедись, что путь корректный
-from app.services.auth_service import AuthService  # Убедись, что путь корректный
+from app.schemas.user import User
+from app.services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
 
-# Имя заголовка из openapi.json: securitySchemes.ApiKeyAuth.name
-api_key_header_scheme = APIKeyHeader(name="X-API-KEY", auto_error=False)
+api_key_header_auth_scheme = APIKeyHeader(name="Authorization", auto_error=False)
+
+AUTH_SCHEME_PREFIX = "TOKEN"
 
 
 async def get_current_user(
-    api_key: str = Security(api_key_header_scheme),
+    authorization_header: Optional[str] = Security(api_key_header_auth_scheme),
     db: AsyncConnection = Depends(get_db_connection),
 ) -> User:
-    if not api_key:
-        logger.warning("Authentication attempt without API key.")
-        # OpenAPI: /balance -> get -> responses -> 401
+    if not authorization_header:
+        logger.warning("Authentication attempt without Authorization header.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",  # OpenAPI: "Необходима аутентификация"
-            headers={"WWW-Authenticate": "APIKey"},  # Стандартный заголовок для 401
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": AUTH_SCHEME_PREFIX},
+        )
+
+    try:
+        scheme, _, api_key = authorization_header.partition(" ")
+    except ValueError:
+        scheme = ""
+        api_key = ""
+
+    if not api_key or scheme.upper() != AUTH_SCHEME_PREFIX:
+        logger.warning(
+            f"Invalid Authorization header format. Expected '{AUTH_SCHEME_PREFIX} <key>', got '{authorization_header}'"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": AUTH_SCHEME_PREFIX},
         )
 
     auth_service = AuthService(db)
@@ -33,12 +50,50 @@ async def get_current_user(
     if not user:
         logger.warning(
             f"Authentication attempt with invalid API key: {api_key[:10]}..."
-        )  # Не логгируй весь ключ
-        # OpenAPI: /balance -> get -> responses -> 401 (также подходит для невалидного ключа)
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API Key",  # OpenAPI: "Неверный API ключ"
-            headers={"WWW-Authenticate": "APIKey"},
+            detail="Invalid API Key",
+            headers={"WWW-Authenticate": AUTH_SCHEME_PREFIX},
         )
-    # logger.info(f"User {user.id} authenticated successfully.") # Можно добавить для отладки
+
     return user
+
+
+from app.core.config import get_settings
+
+
+async def get_current_admin_user(
+    authorization_header: Optional[str] = Security(api_key_header_auth_scheme),
+) -> bool:
+    """
+    Проверяет, является ли предоставленный токен валидным админским токеном.
+    """
+    settings = get_settings()
+
+    if not authorization_header:
+        # Админский эндпоинт без авторизации
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Admin authentication required.",
+            headers={"WWW-Authenticate": AUTH_SCHEME_PREFIX},
+        )
+
+    try:
+        scheme, _, provided_token = authorization_header.partition(" ")
+    except ValueError:
+        scheme = ""
+        provided_token = ""
+
+    if (
+        scheme.upper() != AUTH_SCHEME_PREFIX
+        or provided_token != settings.ADMIN_API_TOKEN
+    ):
+        logger.warning("Admin authentication failed: invalid token or scheme.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized for admin access.",
+        )
+
+    logger.info("Admin authenticated successfully.")
+    return True
