@@ -1,21 +1,18 @@
 from sqlalchemy import UUID as GenericUUID
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Table, func
+from sqlalchemy import Column, DateTime, Integer, String, Table, UniqueConstraint, func
 
 from app.db.metadata import metadata
 
-user_cash_balances_table = Table(
-    "user_cash_balances",
+balances_table = Table(
+    "balances",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_id", GenericUUID(as_uuid=True), nullable=False, index=True),
     Column(
-        "user_id",
-        GenericUUID(as_uuid=True),
-        ForeignKey(
-            "users.id", name="fk_user_cash_balances_user_id", ondelete="CASCADE"
-        ),
+        "ticker",
+        String(20),
         nullable=False,
-        unique=True,
-        index=True,
+        comment="Тикер актива или валюты (e.g., 'AAPL', 'RUB')",
     ),
     Column(
         "amount",
@@ -23,8 +20,17 @@ user_cash_balances_table = Table(
         nullable=False,
         default=0,
         server_default="0",
-        comment="Сумма в копейках. Соответствует total_balance из BalanceResponse",
+        comment="Текущее количество актива или денежных средств на балансе",
     ),
+    Column(
+        "locked_amount",
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="Количество актива или денежных средств, заблокированное в активных ордерах",
+    ),
+    UniqueConstraint("user_id", "ticker", name="uq_user_ticker_balance"),
     Column(
         "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
     ),
