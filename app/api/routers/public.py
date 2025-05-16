@@ -8,7 +8,7 @@ from app.schemas.instrument import Instrument
 from app.schemas.orderbook import L2OrderBook
 from app.schemas.user import NewUser, User
 from app.services.auth_service import AuthService
-from app.services.instrument_service import get_all_instruments
+from app.services.instrument_service import InstrumentService
 from app.services.orderbook_service import OrderBookService
 
 router = APIRouter(tags=["Public Data"])
@@ -22,7 +22,8 @@ router = APIRouter(tags=["Public Data"])
 )
 async def list_instruments(db: AsyncConnection = Depends(get_db_connection)):
     try:
-        instruments = await get_all_instruments(db=db)
+        instrument_service = InstrumentService(db)
+        instruments = await instrument_service.get_all_instruments()
         return instruments
     except Exception as e:
         print(f"Error fetching instruments: {e}")
@@ -30,9 +31,6 @@ async def list_instruments(db: AsyncConnection = Depends(get_db_connection)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not fetch instruments from the database.",
         )
-
-
-# ручка для решистрации пользователя. Было принято решение ввести её в файл public.py
 
 
 @router.post(
