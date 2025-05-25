@@ -13,7 +13,7 @@ from app.services.instrument_service import InstrumentService
 from app.services.orderbook_service import OrderBookService
 from app.services.transaction_service import TransactionService
 
-router = APIRouter(tags=["Public Data"])
+router = APIRouter(prefix="/public", tags=["Public Data"])
 
 
 @router.get(

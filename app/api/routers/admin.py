@@ -13,7 +13,9 @@ from app.services.balance_service import BalanceService
 from app.services.instrument_service import InstrumentService
 
 router = APIRouter(
-    tags=["Admin Actions"], dependencies=[Depends(get_current_admin_user)]
+    prefix="/admin",
+    tags=["Admin Actions"],
+    dependencies=[Depends(get_current_admin_user)],
 )
 
 
