@@ -1,9 +1,9 @@
 from uuid import UUID
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models.users import users_table
-from app.schemas.user import User
+
 
 class UserService:
     def __init__(self, db: AsyncConnection):

@@ -8,4 +8,3 @@ api_router.include_router(public.router, prefix="/public")
 api_router.include_router(admin.router, prefix="/admin")
 api_router.include_router(balance.router)
 api_router.include_router(user.router)
-
