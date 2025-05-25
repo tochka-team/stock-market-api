@@ -55,58 +55,57 @@ class BalanceService:
         if operation == "withdraw" and change_amount <= 0:
             raise ValueError("Withdrawal amount must be positive.")
 
-        async with self.db.begin():
-            current_balance_stmt = select(balances_table.c.amount).where(
-                (balances_table.c.user_id == user_id)
-                & (balances_table.c.ticker == ticker)
-            )
-            current_balance_res = await self.db.execute(current_balance_stmt)
-            current_amount = current_balance_res.scalar_one_or_none()
+        current_balance_stmt = select(balances_table.c.amount).where(
+            (balances_table.c.user_id == user_id)
+            & (balances_table.c.ticker == ticker)
+        )
+        current_balance_res = await self.db.execute(current_balance_stmt)
+        current_amount = current_balance_res.scalar_one_or_none()
 
-            if current_amount is not None:
-                new_amount = current_amount
-                if operation == "deposit":
-                    new_amount += change_amount
-                elif operation == "withdraw":
-                    if current_amount < change_amount:
-                        logger.warning(
-                            f"Insufficient balance for withdrawal: user {user_id}, ticker {ticker}, wants {change_amount}, has {current_amount}"
-                        )
-                        raise ValueError(
-                            f"Insufficient balance for ticker {ticker} to withdraw {change_amount}."
-                        )
-                    new_amount -= change_amount
-
-                update_stmt = (
-                    update(balances_table)
-                    .where(
-                        (balances_table.c.user_id == user_id)
-                        & (balances_table.c.ticker == ticker)
-                    )
-                    .values(amount=new_amount)
-                )
-                await self.db.execute(update_stmt)
-                logger.info(
-                    f"Admin {operation}: Updated balance for user {user_id}, ticker {ticker} to {new_amount}"
-                )
-            else:
-                if operation == "withdraw":
+        if current_amount is not None:
+            new_amount = current_amount
+            if operation == "deposit":
+                new_amount += change_amount
+            elif operation == "withdraw":
+                if current_amount < change_amount:
                     logger.warning(
-                        f"Admin withdrawal attempt from non-existent balance: user {user_id}, ticker {ticker}"
+                        f"Insufficient balance for withdrawal: user {user_id}, ticker {ticker}, wants {change_amount}, has {current_amount}"
                     )
                     raise ValueError(
-                        f"Cannot withdraw from non-existent balance for ticker {ticker}."
+                        f"Insufficient balance for ticker {ticker} to withdraw {change_amount}."
                     )
+                new_amount -= change_amount
 
-                insert_stmt = insert(balances_table).values(
-                    user_id=user_id,
-                    ticker=ticker,
-                    amount=change_amount,
-                    locked_amount=0,
+            update_stmt = (
+                update(balances_table)
+                .where(
+                    (balances_table.c.user_id == user_id)
+                    & (balances_table.c.ticker == ticker)
                 )
-                await self.db.execute(insert_stmt)
-                logger.info(
-                    f"Admin {operation}: Created balance for user {user_id}, ticker {ticker} with amount {change_amount}"
+                .values(amount=new_amount)
+            )
+            await self.db.execute(update_stmt)
+            logger.info(
+                f"Admin {operation}: Updated balance for user {user_id}, ticker {ticker} to {new_amount}"
+            )
+        else:
+            if operation == "withdraw":
+                logger.warning(
+                    f"Admin withdrawal attempt from non-existent balance: user {user_id}, ticker {ticker}"
                 )
+                raise ValueError(
+                    f"Cannot withdraw from non-existent balance for ticker {ticker}."
+                )
+
+            insert_stmt = insert(balances_table).values(
+                user_id=user_id,
+                ticker=ticker,
+                amount=change_amount,
+                locked_amount=0,
+            )
+            await self.db.execute(insert_stmt)
+            logger.info(
+                f"Admin {operation}: Created balance for user {user_id}, ticker {ticker} with amount {change_amount}"
+            )
 
         return True

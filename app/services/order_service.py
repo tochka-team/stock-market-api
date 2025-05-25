@@ -23,6 +23,7 @@ class OrderService:
         Создает новый ордер в базе данных.
         Пока без проверки баланса и без запуска matching engine.
         """
+        logger.debug(f"OrderService.create_order: DB connection {self.db}, in_transaction: {self.db.in_transaction()}")
         order_id_obj = uuid.uuid4()
         user_id_obj = current_user.id
 
@@ -57,8 +58,7 @@ class OrderService:
         )
 
         try:
-            async with self.db.begin():
-                result = await self.db.execute(insert_stmt)
+            result = await self.db.execute(insert_stmt)
 
             created_order_row = result.mappings().one_or_none()
 
