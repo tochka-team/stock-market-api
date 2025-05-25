@@ -2,7 +2,7 @@ import logging
 import uuid
 from typing import List, Optional, Union
 
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models.orders import orders_table
@@ -123,3 +123,57 @@ class OrderService:
                 order_dict["filled"] = order_dict.pop("filled_qty")
             orders_list.append(OrderBase.model_validate(order_dict))
         return orders_list
+    
+    async def cancel_order(
+        self,
+        order_id: uuid.UUID,
+        current_user: User
+    ) -> bool:
+        """
+        Отменяет ордер пользователя.
+        - Проверяет, что ордер принадлежит пользователю.
+        - Проверяет, что ордер находится в отменяемом статусе.
+        - Устанавливает статус ордера на CANCELLED.
+        - Пока НЕ разблокирует средства (это будет на следующем этапе).
+        Возвращает True, если ордер успешно отменен, иначе выбрасывает исключение.
+        """
+        user_id = current_user.id
+        logger.debug(f"Attempting to cancel order {order_id} for user {user_id}")
+
+        get_order_stmt = select(
+            orders_table.c.id,
+            orders_table.c.user_id,
+            orders_table.c.status
+        ).where(orders_table.c.id == order_id)
+        
+        order_res = await self.db.execute(get_order_stmt)
+        order_to_cancel = order_res.mappings().one_or_none()
+
+        if not order_to_cancel:
+            logger.warning(f"Order {order_id} not found for cancellation by user {user_id}.")
+            raise ValueError(f"Order with ID '{order_id}' not found.")
+
+        if order_to_cancel["user_id"] != user_id:
+            logger.warning(f"User {user_id} attempted to cancel order {order_id} owned by {order_to_cancel['user_id']}.")
+            raise PermissionError("User not authorized to cancel this order.")
+
+        current_status = order_to_cancel["status"]
+        if current_status not in [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]:
+            logger.warning(f"Order {order_id} cannot be cancelled due to its status: {current_status}.")
+            raise ValueError(f"Order cannot be cancelled. Current status: {current_status}.")
+
+        update_stmt = update(orders_table).where(
+            orders_table.c.id == order_id
+        ).values(
+            status=OrderStatus.CANCELLED,
+        ).returning(orders_table.c.id)
+
+        result = await self.db.execute(update_stmt)
+        updated_id = result.scalar_one_or_none()
+
+        if updated_id:
+            logger.info(f"Order {order_id} successfully cancelled by user {user_id}.")
+            return True
+        else:
+            logger.error(f"Failed to update status for order {order_id} during cancellation.")
+            return False
