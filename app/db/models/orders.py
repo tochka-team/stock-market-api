@@ -3,11 +3,12 @@ import uuid
 from sqlalchemy import UUID as GenericUUID
 from sqlalchemy import Column, DateTime
 from sqlalchemy import Enum as SqlEnum
-from sqlalchemy import Index, Integer, String, Table, func, ForeignKey
+from sqlalchemy import ForeignKey, Index, Integer, String, Table, func
 
-from .users import users_table
 from app.db.metadata import metadata
 from app.schemas.order import Direction, OrderStatus
+
+from .users import users_table
 
 orders_table = Table(
     "orders",
@@ -18,7 +19,13 @@ orders_table = Table(
         primary_key=True,
         default=uuid.uuid4,
     ),
-    Column("user_id", GenericUUID(as_uuid=True), ForeignKey(users_table.c.id, name="fk_orders_user_id", ondelete="CASCADE"), nullable=False, index=True),
+    Column(
+        "user_id",
+        GenericUUID(as_uuid=True),
+        ForeignKey(users_table.c.id, name="fk_orders_user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
     Column("ticker", String(20), nullable=False),
     Column(
         "direction",

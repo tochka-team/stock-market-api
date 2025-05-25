@@ -1,6 +1,7 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncConnection
-from uuid import UUID
 
 from app.api.deps import get_current_user
 from app.db.connection import get_db_connection
@@ -8,10 +9,7 @@ from app.schemas.common import OkResponse
 from app.schemas.user import User
 from app.services.user_service import UserService
 
-router = APIRouter(
-    tags=["User Actions"],
-    dependencies=[Depends(get_current_user)]
-)
+router = APIRouter(tags=["User Actions"], dependencies=[Depends(get_current_user)])
 
 
 @router.delete(
@@ -19,12 +17,12 @@ router = APIRouter(
     response_model=OkResponse,
     summary="Delete user",
     description="Удаление пользователя по user_id",
-    dependencies=[Depends(get_current_user)]
+    dependencies=[Depends(get_current_user)],
 )
 async def delete_user_endpoint(
     user_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncConnection = Depends(get_db_connection)
+    db: AsyncConnection = Depends(get_db_connection),
 ):
     if current_user.id != user_id:
         raise HTTPException(
