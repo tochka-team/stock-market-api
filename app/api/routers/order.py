@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.api.deps import get_current_user
 from app.db.connection import get_db_connection
+from app.schemas.common import OkResponse
 from app.schemas.order import (
     CreateOrderResponse,
     LimitOrderBody,
@@ -14,7 +15,6 @@ from app.schemas.order import (
     OrderBase,
 )
 from app.schemas.user import User
-from app.schemas.common import OkResponse
 from app.services.order_service import OrderService
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,7 @@ async def list_user_orders_endpoint(
     )
     return orders
 
+
 @router.delete(
     "/{order_id}",
     response_model=OkResponse,
@@ -104,26 +105,28 @@ async def list_user_orders_endpoint(
 async def cancel_order_endpoint(
     order_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncConnection = Depends(get_db_connection)
+    db: AsyncConnection = Depends(get_db_connection),
 ):
     order_service = OrderService(db)
     try:
         success = await order_service.cancel_order(
-            order_id=order_id,
-            current_user=current_user
+            order_id=order_id, current_user=current_user
         )
         if success:
             return OkResponse(success=True)
         else:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to cancel order due to an unknown issue."
+                detail="Failed to cancel order due to an unknown issue.",
             )
     except ValueError as e:
         detail_str = str(e)
         if "not found" in detail_str.lower():
             status_code = status.HTTP_404_NOT_FOUND
-        elif "cannot be cancelled" in detail_str.lower() or "not authorized" in detail_str.lower():
+        elif (
+            "cannot be cancelled" in detail_str.lower()
+            or "not authorized" in detail_str.lower()
+        ):
             status_code = status.HTTP_400_BAD_REQUEST
         else:
             status_code = status.HTTP_400_BAD_REQUEST
@@ -131,8 +134,11 @@ async def cancel_order_endpoint(
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except Exception as e:
-        logger.error(f"Error cancelling order {order_id} for user {current_user.id}: {e}", exc_info=True)
+        logger.error(
+            f"Error cancelling order {order_id} for user {current_user.id}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while cancelling the order."
+            detail="An unexpected error occurred while cancelling the order.",
         )

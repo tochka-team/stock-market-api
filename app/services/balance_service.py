@@ -56,8 +56,7 @@ class BalanceService:
             raise ValueError("Withdrawal amount must be positive.")
 
         current_balance_stmt = select(balances_table.c.amount).where(
-            (balances_table.c.user_id == user_id)
-            & (balances_table.c.ticker == ticker)
+            (balances_table.c.user_id == user_id) & (balances_table.c.ticker == ticker)
         )
         current_balance_res = await self.db.execute(current_balance_stmt)
         current_amount = current_balance_res.scalar_one_or_none()
@@ -114,25 +113,29 @@ class BalanceService:
         self, user_id: uuid.UUID, ticker: str, create_if_not_exists: bool = True
     ) -> Dict:
         """Вспомогательный метод для получения или создания записи баланса."""
-        select_stmt = select(balances_table.c.amount, balances_table.c.locked_amount).where(
-            (balances_table.c.user_id == user_id) &
-            (balances_table.c.ticker == ticker)
+        select_stmt = select(
+            balances_table.c.amount, balances_table.c.locked_amount
+        ).where(
+            (balances_table.c.user_id == user_id) & (balances_table.c.ticker == ticker)
         )
         result = await self.db.execute(select_stmt)
         balance_record = result.mappings().one_or_none()
 
         if not balance_record and create_if_not_exists:
-            logger.info(f"No balance record for user {user_id}, ticker {ticker}. Creating one with 0 amounts.")
-            insert_stmt = insert(balances_table).values(
-                user_id=user_id,
-                ticker=ticker,
-                amount=0,
-                locked_amount=0
-            ).returning(balances_table.c.amount, balances_table.c.locked_amount)
-            
+            logger.info(
+                f"No balance record for user {user_id}, ticker {ticker}. Creating one with 0 amounts."
+            )
+            insert_stmt = (
+                insert(balances_table)
+                .values(user_id=user_id, ticker=ticker, amount=0, locked_amount=0)
+                .returning(balances_table.c.amount, balances_table.c.locked_amount)
+            )
+
             created_result = await self.db.execute(insert_stmt)
             balance_record = created_result.mappings().one()
-            logger.info(f"Created balance record for user {user_id}, ticker {ticker}: {balance_record}")
+            logger.info(
+                f"Created balance record for user {user_id}, ticker {ticker}: {balance_record}"
+            )
 
         elif not balance_record and not create_if_not_exists:
             return None
@@ -150,7 +153,9 @@ class BalanceService:
         if amount_to_block <= 0:
             raise ValueError("Amount to block must be positive.")
 
-        balance_record = await self._get_or_create_balance_record(user_id, ticker, create_if_not_exists=False)
+        balance_record = await self._get_or_create_balance_record(
+            user_id, ticker, create_if_not_exists=False
+        )
 
         if not balance_record or balance_record["amount"] < amount_to_block:
             logger.warning(
@@ -162,15 +167,18 @@ class BalanceService:
         new_amount = balance_record["amount"] - amount_to_block
         new_locked_amount = balance_record["locked_amount"] + amount_to_block
 
-        update_stmt = update(balances_table).where(
-            (balances_table.c.user_id == user_id) &
-            (balances_table.c.ticker == ticker)
-        ).values(
-            amount=new_amount,
-            locked_amount=new_locked_amount
+        update_stmt = (
+            update(balances_table)
+            .where(
+                (balances_table.c.user_id == user_id)
+                & (balances_table.c.ticker == ticker)
+            )
+            .values(amount=new_amount, locked_amount=new_locked_amount)
         )
         await self.db.execute(update_stmt)
-        logger.info(f"Blocked {amount_to_block} of {ticker} for user {user_id}. New available: {new_amount}, new locked: {new_locked_amount}")
+        logger.info(
+            f"Blocked {amount_to_block} of {ticker} for user {user_id}. New available: {new_amount}, new locked: {new_locked_amount}"
+        )
         return True
 
     async def unblock_funds(
@@ -184,7 +192,9 @@ class BalanceService:
         if amount_to_unblock <= 0:
             raise ValueError("Amount to unblock must be positive.")
 
-        balance_record = await self._get_or_create_balance_record(user_id, ticker, create_if_not_exists=False)
+        balance_record = await self._get_or_create_balance_record(
+            user_id, ticker, create_if_not_exists=False
+        )
 
         if not balance_record or balance_record["locked_amount"] < amount_to_unblock:
             logger.warning(
@@ -196,13 +206,16 @@ class BalanceService:
         new_amount = balance_record["amount"] + amount_to_unblock
         new_locked_amount = balance_record["locked_amount"] - amount_to_unblock
 
-        update_stmt = update(balances_table).where(
-            (balances_table.c.user_id == user_id) &
-            (balances_table.c.ticker == ticker)
-        ).values(
-            amount=new_amount,
-            locked_amount=new_locked_amount
+        update_stmt = (
+            update(balances_table)
+            .where(
+                (balances_table.c.user_id == user_id)
+                & (balances_table.c.ticker == ticker)
+            )
+            .values(amount=new_amount, locked_amount=new_locked_amount)
         )
         await self.db.execute(update_stmt)
-        logger.info(f"Unblocked {amount_to_unblock} of {ticker} for user {user_id}. New available: {new_amount}, new locked: {new_locked_amount}")
+        logger.info(
+            f"Unblocked {amount_to_unblock} of {ticker} for user {user_id}. New available: {new_amount}, new locked: {new_locked_amount}"
+        )
         return True

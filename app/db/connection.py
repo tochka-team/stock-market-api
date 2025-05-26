@@ -29,19 +29,37 @@ async def get_db_connection() -> AsyncGenerator[AsyncConnection, None]:
             async with connection.begin():
                 try:
                     yield connection
-                except HTTPException as http_exc:
-                    raise 
+                except HTTPException:
+                    raise
                 except SQLAlchemyError as db_exc:
-                    logger.error(f"SQLAlchemyError during request, will rollback: {db_exc}", exc_info=True)
-                    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database operation failed.") from db_exc
+                    logger.error(
+                        f"SQLAlchemyError during request, will rollback: {db_exc}",
+                        exc_info=True,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Database operation failed.",
+                    ) from db_exc
                 except Exception as e:
-                    logger.error(f"Unexpected error during request, will rollback: {e}", exc_info=True)
-                    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.") from e
+                    logger.error(
+                        f"Unexpected error during request, will rollback: {e}",
+                        exc_info=True,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="An unexpected error occurred.",
+                    ) from e
     except SQLAlchemyError as e:
-        logger.error(f"Failed to acquire DB connection or start transaction: {e}", exc_info=True)
-        raise ConnectionError("Could not connect to the database or start transaction.") from e
+        logger.error(
+            f"Failed to acquire DB connection or start transaction: {e}", exc_info=True
+        )
+        raise ConnectionError(
+            "Could not connect to the database or start transaction."
+        ) from e
     except Exception as e:
-        logger.error(f"An unexpected error occurred in get_db_connection: {e}", exc_info=True)
+        logger.error(
+            f"An unexpected error occurred in get_db_connection: {e}", exc_info=True
+        )
         raise
 
 
