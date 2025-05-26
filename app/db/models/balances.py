@@ -1,13 +1,30 @@
 from sqlalchemy import UUID as GenericUUID
-from sqlalchemy import Column, DateTime, Integer, String, Table, UniqueConstraint, func, ForeignKey
-from .users import users_table
+from sqlalchemy import (
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    UniqueConstraint,
+    func,
+)
+
 from app.db.metadata import metadata
+
+from .users import users_table
 
 balances_table = Table(
     "balances",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("user_id", GenericUUID(as_uuid=True), ForeignKey(users_table.c.id, name="fk_balances_user_id", ondelete="CASCADE"), nullable=False, index=True),
+    Column(
+        "user_id",
+        GenericUUID(as_uuid=True),
+        ForeignKey(users_table.c.id, name="fk_balances_user_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
     Column(
         "ticker",
         String(20),

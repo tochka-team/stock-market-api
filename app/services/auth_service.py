@@ -33,8 +33,7 @@ class AuthService:
             )
 
             logger.info("Executing insert query")
-            async with self.db.begin():
-                result = await self.db.execute(query)
+            result = await self.db.execute(query)
 
             created_row_map = result.mappings().first()
 

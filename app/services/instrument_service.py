@@ -46,8 +46,7 @@ class InstrumentService:
             )
         )
         try:
-            async with self.db.begin():
-                result = await self.db.execute(insert_stmt)
+            result = await self.db.execute(insert_stmt)
             created_instrument_row = result.mappings().one_or_none()
 
             if created_instrument_row is None:
@@ -74,8 +73,7 @@ class InstrumentService:
             .returning(instruments_table.c.id)
         )
 
-        async with self.db.begin():
-            result = await self.db.execute(delete_stmt)
+        result = await self.db.execute(delete_stmt)
 
         deleted_id = result.scalar_one_or_none()
         return deleted_id is not None

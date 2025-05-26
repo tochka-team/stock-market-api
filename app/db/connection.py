@@ -1,6 +1,8 @@
 import logging
 from typing import AsyncGenerator
 
+from fastapi import status
+from fastapi.exceptions import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
@@ -18,23 +20,45 @@ async_engine: AsyncEngine = create_async_engine(
 
 
 async def get_db_connection() -> AsyncGenerator[AsyncConnection, None]:
+    """
+    Зависимость FastAPI для получения асинхронного соединения с базой данных,
+    которое автоматически управляет транзакцией для всего запроса.
+    """
     try:
         async with async_engine.connect() as connection:
-            logger.debug(f"Connection acquired from pool: {connection}")
-            try:
-                yield connection
-            except SQLAlchemyError as e:
-                logger.error(f"SQLAlchemy error during request: {e}", exc_info=True)
-                raise
-            finally:
-                logger.debug(f"Connection released back to pool: {connection}")
+            async with connection.begin():
+                try:
+                    yield connection
+                except HTTPException:
+                    raise
+                except SQLAlchemyError as db_exc:
+                    logger.error(
+                        f"SQLAlchemyError during request, will rollback: {db_exc}",
+                        exc_info=True,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Database operation failed.",
+                    ) from db_exc
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected error during request, will rollback: {e}",
+                        exc_info=True,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="An unexpected error occurred.",
+                    ) from e
     except SQLAlchemyError as e:
-        logger.error(f"Failed to acquire DB connection: {e}", exc_info=True)
-        raise ConnectionError("Could not connect to the database.") from e
+        logger.error(
+            f"Failed to acquire DB connection or start transaction: {e}", exc_info=True
+        )
+        raise ConnectionError(
+            "Could not connect to the database or start transaction."
+        ) from e
     except Exception as e:
         logger.error(
-            f"An unexpected error occurred during DB connection handling: {e}",
-            exc_info=True,
+            f"An unexpected error occurred in get_db_connection: {e}", exc_info=True
         )
         raise
 

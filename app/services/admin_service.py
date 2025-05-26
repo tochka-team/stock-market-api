@@ -1,4 +1,5 @@
 from uuid import UUID
+
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -19,6 +20,5 @@ class AdminService:
             .where(users_table.c.id == user_id)
             .returning(users_table.c.id)
         )
-        async with self.db.begin():
-            result = await self.db.execute(delete_stmt)
+        result = await self.db.execute(delete_stmt)
         return bool(result.scalar_one_or_none())

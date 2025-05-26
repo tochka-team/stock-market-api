@@ -1,18 +1,21 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncConnection
-from uuid import UUID
 
 from app.api.deps import get_current_admin_user
 from app.db.connection import get_db_connection
 from app.schemas.balance import AdminBalanceChangeRequest
 from app.schemas.common import OkResponse
 from app.schemas.instrument import Instrument
+from app.services.admin_service import AdminService
 from app.services.balance_service import BalanceService
 from app.services.instrument_service import InstrumentService
-from app.services.admin_service import AdminService
 
 router = APIRouter(
-    tags=["Admin Actions"], dependencies=[Depends(get_current_admin_user)]
+    prefix="/admin",
+    tags=["Admin Actions"],
+    dependencies=[Depends(get_current_admin_user)],
 )
 
 
@@ -42,6 +45,7 @@ async def delete_user_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while deleting the user.",
         )
+
 
 @router.post(
     "/instrument",
