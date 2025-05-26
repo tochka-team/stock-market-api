@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stock_market_api_app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://stock_user:stock_password@db:5432/stock_db
+      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN}
+      - DEBUG=${DEBUG:-False}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    container_name: stock_market_api_db
+    environment:
+      POSTGRES_USER: stock_user
+      POSTGRES_PASSWORD: stock_password
+      POSTGRES_DB: stock_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stock_user -d stock_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

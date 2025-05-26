@@ -219,3 +219,120 @@ class BalanceService:
             f"Unblocked {amount_to_unblock} of {ticker} for user {user_id}. New available: {new_amount}, new locked: {new_locked_amount}"
         )
         return True
+
+    async def execute_trade_balances(
+        self,
+        buyer_id: uuid.UUID,
+        seller_id: uuid.UUID,
+        ticker: str,
+        trade_qty: int,
+        trade_price: int,
+    ) -> bool:
+        """
+        Обновляет балансы покупателя и продавца после исполнения сделки.
+        - Покупатель: -деньги (из locked), +актив (в amount)
+        - Продавец: -актив (из locked), +деньги (в amount)
+        Все операции должны быть частью внешней транзакции.
+        Возвращает True при успехе. Выбрасывает исключение при ошибке (например, если что-то пошло не так с балансами).
+        """
+        if trade_qty <= 0 or trade_price <= 0:
+            raise ValueError("Trade quantity and price must be positive.")
+
+        money_ticker = "RUB"
+        total_trade_sum = trade_qty * trade_price
+
+        logger.info(
+            f"Executing trade balances: Buyer {buyer_id}, Seller {seller_id}, "
+            f"{trade_qty} of {ticker} @ {trade_price} (Total sum: {total_trade_sum} {money_ticker})"
+        )
+
+        buyer_rub_balance = await self._get_or_create_balance_record(
+            buyer_id, money_ticker, create_if_not_exists=False
+        )
+        buyer_asset_balance = await self._get_or_create_balance_record(
+            buyer_id, ticker, create_if_not_exists=True
+        )
+
+        if (
+            not buyer_rub_balance
+            or buyer_rub_balance["locked_amount"] < total_trade_sum
+        ):
+            logger.error(
+                f"CRITICAL: Buyer {buyer_id} has insufficient locked {money_ticker} for trade. "
+                f"Required: {total_trade_sum}, Locked: {buyer_rub_balance.get('locked_amount', 0) if buyer_rub_balance else 0}."
+            )
+            raise Exception(
+                f"Buyer {buyer_id} insufficient locked {money_ticker} for trade."
+            )
+
+        stmt_buyer_rub_update = (
+            update(balances_table)
+            .where(
+                (balances_table.c.user_id == buyer_id)
+                & (balances_table.c.ticker == money_ticker)
+            )
+            .values(locked_amount=balances_table.c.locked_amount - total_trade_sum)
+        )
+        await self.db.execute(stmt_buyer_rub_update)
+        logger.debug(
+            f"Buyer {buyer_id}: Decreased locked {money_ticker} by {total_trade_sum}."
+        )
+
+        stmt_buyer_asset_update = (
+            update(balances_table)
+            .where(
+                (balances_table.c.user_id == buyer_id)
+                & (balances_table.c.ticker == ticker)
+            )
+            .values(amount=balances_table.c.amount + trade_qty)
+        )
+        await self.db.execute(stmt_buyer_asset_update)
+        logger.debug(f"Buyer {buyer_id}: Increased {ticker} amount by {trade_qty}.")
+
+        seller_asset_balance = await self._get_or_create_balance_record(
+            seller_id, ticker, create_if_not_exists=False
+        )
+        seller_rub_balance = await self._get_or_create_balance_record(
+            seller_id, money_ticker, create_if_not_exists=True
+        )
+
+        if (
+            not seller_asset_balance
+            or seller_asset_balance["locked_amount"] < trade_qty
+        ):
+            logger.error(
+                f"CRITICAL: Seller {seller_id} has insufficient locked {ticker} for trade. "
+                f"Required: {trade_qty}, Locked: {seller_asset_balance.get('locked_amount', 0) if seller_asset_balance else 0}."
+            )
+            raise Exception(
+                f"Seller {seller_id} insufficient locked {ticker} for trade."
+            )
+
+        stmt_seller_asset_update = (
+            update(balances_table)
+            .where(
+                (balances_table.c.user_id == seller_id)
+                & (balances_table.c.ticker == ticker)
+            )
+            .values(locked_amount=balances_table.c.locked_amount - trade_qty)
+        )
+        await self.db.execute(stmt_seller_asset_update)
+        logger.debug(f"Seller {seller_id}: Decreased locked {ticker} by {trade_qty}.")
+
+        stmt_seller_rub_update = (
+            update(balances_table)
+            .where(
+                (balances_table.c.user_id == seller_id)
+                & (balances_table.c.ticker == money_ticker)
+            )
+            .values(amount=balances_table.c.amount + total_trade_sum)
+        )
+        await self.db.execute(stmt_seller_rub_update)
+        logger.debug(
+            f"Seller {seller_id}: Increased {money_ticker} amount by {total_trade_sum}."
+        )
+
+        logger.info(
+            f"Trade balances updated for ticker {ticker}, qty {trade_qty}, price {trade_price} between buyer {buyer_id} and seller {seller_id}"
+        )
+        return True
