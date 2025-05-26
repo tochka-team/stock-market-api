@@ -2,11 +2,11 @@ import logging
 import uuid
 from typing import List, Optional, Union
 
-from sqlalchemy import insert, select, update, func
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from app.db.models.orders import orders_table
 from app.db.models.instruments import instruments_table
+from app.db.models.orders import orders_table
 from app.schemas.order import (
     Direction,
     LimitOrderBody,
@@ -123,7 +123,9 @@ class OrderService:
         instrument_count_result = await self.db.execute(instrument_exists_stmt)
         count = instrument_count_result.scalar_one_or_none()
         if not count or count == 0:
-            raise ValueError(f"Instrument with ticker '{order_data.ticker}' does not exist.")
+            raise ValueError(
+                f"Instrument with ticker '{order_data.ticker}' does not exist."
+            )
         insert_stmt = (
             insert(orders_table)
             .values(

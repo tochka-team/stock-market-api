@@ -12,8 +12,8 @@ from sqlalchemy import (
 
 from app.db.metadata import metadata
 
-from .users import users_table
 from .instruments import instruments_table
+from .users import users_table
 
 balances_table = Table(
     "balances",
@@ -29,7 +29,11 @@ balances_table = Table(
     Column(
         "ticker",
         String(20),
-        ForeignKey(instruments_table.c.ticker, name="fk_balances_instrument_ticker", ondelete="RESTRICT"),
+        ForeignKey(
+            instruments_table.c.ticker,
+            name="fk_balances_instrument_ticker",
+            ondelete="RESTRICT",
+        ),
         nullable=False,
         comment="Тикер актива или валюты (e.g., 'AAPL', 'RUB')",
     ),

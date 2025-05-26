@@ -8,8 +8,8 @@ from sqlalchemy import ForeignKey, Index, Integer, String, Table, func
 from app.db.metadata import metadata
 from app.schemas.order import Direction, OrderStatus
 
-from .users import users_table
 from .instruments import instruments_table
+from .users import users_table
 
 orders_table = Table(
     "orders",
@@ -30,7 +30,11 @@ orders_table = Table(
     Column(
         "ticker",
         String(20),
-        ForeignKey(instruments_table.c.ticker, name="fk_orders_instrument_ticker", ondelete="RESTRICT"),
+        ForeignKey(
+            instruments_table.c.ticker,
+            name="fk_orders_instrument_ticker",
+            ondelete="RESTRICT",
+        ),
         nullable=False,
     ),
     Column(
