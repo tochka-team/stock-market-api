@@ -24,4 +24,32 @@ transactions_table = Table(
         nullable=False,
         index=True,
     ),
+    Column(
+        "buy_order_id", 
+        GenericUUID(as_uuid=True), 
+        # ForeignKey(orders_table.c.id, name="fk_transactions_buy_order_id", ondelete="SET NULL"), # Связь с ордером покупателя
+        nullable=True,
+        index=True
+    ),
+    Column(
+        "sell_order_id", 
+        GenericUUID(as_uuid=True), 
+        # ForeignKey(orders_table.c.id, name="fk_transactions_sell_order_id", ondelete="SET NULL"), # Связь с ордером продавца
+        nullable=True,
+        index=True
+    ),
+    Column(
+        "buyer_user_id", 
+        GenericUUID(as_uuid=True), 
+        # ForeignKey(users_table.c.id, name="fk_transactions_buyer_user_id", ondelete="SET NULL"), # Связь с пользователем-покупателем
+        nullable=True,
+        index=True
+    ),
+    Column(
+        "seller_user_id", 
+        GenericUUID(as_uuid=True), 
+        # ForeignKey(users_table.c.id, name="fk_transactions_seller_user_id", ondelete="SET NULL"), # Связь с пользователем-продавцом
+        nullable=True,
+        index=True
+    ),
 )

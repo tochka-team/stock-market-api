@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, conint
 
@@ -48,6 +48,7 @@ class OrderBase(BaseModel):
     direction: Direction
     ticker: str
     qty: int
+    price: Optional[int] = None
     status: OrderStatus
     filled_qty: int = Field(default=0, alias="filled")
 
@@ -55,14 +56,11 @@ class OrderBase(BaseModel):
 
 
 class MarketOrderResponse(OrderBase):
-    # У рыночного ордера нет 'price' в теле запроса, но он может появиться после исполнения
-    # или мы можем не хранить его как отдельное поле в ордере, а вычислять среднюю цену исполнения.
-    # Для простоты пока оставим так.
     pass
 
 
 class LimitOrderResponse(OrderBase):
-    price: int
+    pass
 
 
 class CreateOrderResponse(BaseModel):

@@ -2,10 +2,12 @@ import logging
 import uuid
 from typing import Optional
 
-from sqlalchemy import asc, desc, select
+from sqlalchemy import asc, desc, select, update, insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models.orders import orders_table
+from app.db.models.transactions import transactions_table
+from app.services.balance_service import BalanceService
 from app.schemas.order import Direction, OrderBase, OrderStatus
 
 logger = logging.getLogger(__name__)
@@ -14,6 +16,7 @@ logger = logging.getLogger(__name__)
 class MatchingEngine:
     def __init__(self, db: AsyncConnection):
         self.db = db
+        self.balance_service = BalanceService(db)
 
     async def _get_order_details(self, order_id: uuid.UUID) -> Optional[OrderBase]:
         """
@@ -50,7 +53,6 @@ class MatchingEngine:
                 [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]
             ),
             (orders_table.c.qty - orders_table.c.filled_qty) > 0,
-            orders_table.c.user_id != order_to_match.user_id,
             orders_table.c.id != order_to_match.id,
         )
 
@@ -84,6 +86,8 @@ class MatchingEngine:
             return None
 
         best_match_stmt = match_query.limit(1)
+        
+        logger.info(f"MATCH_DEBUG: Finding match for order ID: {order_to_match.id}, Ticker: {order_to_match.ticker}, Direction: {order_to_match.direction}, Price: {order_to_match.price}, Qty: {order_to_match.qty}, Filled: {order_to_match.filled_qty}, UserID: {order_to_match.user_id}")
 
         result = await self.db.execute(best_match_stmt)
         match_row = result.mappings().one_or_none()
@@ -137,3 +141,94 @@ class MatchingEngine:
             logger.info(
                 f"No match found for order {new_order.id}. It remains in the order book."
             )
+
+    async def process_new_order(self, new_order_id: uuid.UUID):
+        logger.info(f"MatchingEngine: Processing new order {new_order_id}")
+        new_order = await self._get_order_details(new_order_id)
+
+        if not new_order or \
+           new_order.status not in [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED] or \
+           (new_order.qty - new_order.filled_qty) <= 0:
+            logger.info(f"Order {new_order_id} is not in a matchable state. Status: {new_order.status if new_order else 'N/A'}, Remaining: {(new_order.qty - new_order.filled_qty) if new_order else 'N/A'}.")
+            return
+        
+        counter_order = await self._find_best_match(new_order)
+
+        if counter_order:
+            trade_price: int
+            if new_order.direction == Direction.BUY:
+                trade_price = counter_order.price 
+            else:
+                trade_price = counter_order.price
+
+            remaining_qty_new = new_order.qty - new_order.filled_qty
+            remaining_qty_counter = counter_order.qty - counter_order.filled_qty
+            trade_qty = min(remaining_qty_new, remaining_qty_counter)
+
+            if trade_qty <= 0:
+                logger.warning(f"Calculated trade_qty is {trade_qty} for new_order {new_order.id} and counter_order {counter_order.id}. Skipping trade.")
+                return
+
+            logger.info(
+                f"Attempting trade: New Order {new_order.id} ({new_order.direction} {remaining_qty_new} {new_order.ticker} @ {new_order.price}) "
+                f"vs Counter Order {counter_order.id} ({counter_order.direction} {remaining_qty_counter} {counter_order.ticker} @ {counter_order.price}). "
+                f"Trade: {trade_qty} @ {trade_price}."
+            )
+
+           
+            try:
+                buyer_id = new_order.user_id if new_order.direction == Direction.BUY else counter_order.user_id
+                seller_id = new_order.user_id if new_order.direction == Direction.SELL else counter_order.user_id
+                
+                await self.balance_service.execute_trade_balances(
+                    buyer_id=buyer_id,
+                    seller_id=seller_id,
+                    ticker=new_order.ticker,
+                    trade_qty=trade_qty,
+                    trade_price=trade_price
+                )
+
+                transaction_id = uuid.uuid4()
+                insert_tx_stmt = insert(transactions_table).values(
+                    id=transaction_id,
+                    ticker=new_order.ticker,
+                    amount=trade_qty,
+                    price=trade_price,
+                    buy_order_id = new_order.id if new_order.direction == Direction.BUY else counter_order.id,
+                    sell_order_id = new_order.id if new_order.direction == Direction.SELL else counter_order.id,
+                    buyer_user_id = buyer_id,
+                    seller_user_id = seller_id
+                )
+                await self.db.execute(insert_tx_stmt)
+                logger.info(f"Created transaction {transaction_id} for trade.")
+
+                new_order.filled_qty += trade_qty
+                new_order_status = OrderStatus.EXECUTED if new_order.filled_qty == new_order.qty else OrderStatus.PARTIALLY_EXECUTED
+                
+                update_new_order_stmt = update(orders_table).where(
+                    orders_table.c.id == new_order.id
+                ).values(
+                    filled_qty=new_order.filled_qty,
+                    status=new_order_status
+                )
+                await self.db.execute(update_new_order_stmt)
+                logger.info(f"Updated new order {new_order.id}: filled_qty={new_order.filled_qty}, status={new_order_status.value}")
+
+                counter_order.filled_qty += trade_qty
+                counter_order_status = OrderStatus.EXECUTED if counter_order.filled_qty == counter_order.qty else OrderStatus.PARTIALLY_EXECUTED
+                
+                update_counter_order_stmt = update(orders_table).where(
+                    orders_table.c.id == counter_order.id
+                ).values(
+                    filled_qty=orders_table.c.filled_qty + trade_qty,
+                    status=counter_order_status
+                )
+                await self.db.execute(update_counter_order_stmt)
+                logger.info(f"Updated counter order {counter_order.id}: filled_qty increased by {trade_qty}, status={counter_order_status.value}")
+
+
+            except Exception as e:
+                logger.error(f"CRITICAL ERROR during trade execution between {new_order.id} and {counter_order.id}: {e}", exc_info=True)
+                raise
+        else:
+            logger.info(f"No match found for order {new_order.id}. It remains in the order book.")
