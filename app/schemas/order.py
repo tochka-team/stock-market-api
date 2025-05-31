@@ -1,7 +1,8 @@
+# app/schemas/order.py
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import List, Literal, Union, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, conint
 
@@ -55,12 +56,25 @@ class OrderBase(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class MarketOrderResponse(OrderBase):
-    pass
+class OrderResponseBase(BaseModel):
+    id: uuid.UUID
+    status: OrderStatus
+    user_id: uuid.UUID
+    timestamp: datetime
+    filled_qty: int = Field(default=0, alias="filled")
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class LimitOrderResponse(OrderBase):
-    pass
+class MarketOrderResponse(OrderResponseBase):
+    body: MarketOrderBody
+
+
+class LimitOrderResponse(OrderResponseBase):
+    body: LimitOrderBody
+
+
+AnyOrderResponse = Union[MarketOrderResponse, LimitOrderResponse]
 
 
 class CreateOrderResponse(BaseModel):

@@ -8,9 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from app.db.models.instruments import instruments_table
 from app.db.models.orders import orders_table
 from app.schemas.order import (
+    AnyOrderResponse,
+    CreateOrderResponse,
     Direction,
     LimitOrderBody,
+    LimitOrderResponse,
     MarketOrderBody,
+    MarketOrderResponse,
     OrderBase,
     OrderStatus,
 )
@@ -50,12 +54,64 @@ class OrderService:
         order_row = result.mappings().one_or_none()
         return await self._map_row_to_order_base(order_row)
 
+    async def _map_row_to_any_order_response(
+        self, order_row: Optional[dict]
+    ) -> Optional[AnyOrderResponse]:
+        """
+        Вспомогательный метод для маппинга строки из БД в MarketOrderResponse или LimitOrderResponse.
+        """
+        if not order_row:
+            return None
+
+        order_data_dict = dict(order_row)
+
+        if order_data_dict.get("price") is not None:
+            order_body = LimitOrderBody(
+                direction=order_data_dict["direction"],
+                ticker=order_data_dict["ticker"],
+                qty=order_data_dict["qty"],
+                price=order_data_dict["price"],
+            )
+            response_data = {
+                "id": order_data_dict["id"],
+                "status": order_data_dict["status"],
+                "user_id": order_data_dict["user_id"],
+                "timestamp": order_data_dict["timestamp"],
+                "filled_qty": order_data_dict["filled_qty"],
+                "body": order_body,
+            }
+            return LimitOrderResponse.model_validate(response_data)
+        else:
+            order_body = MarketOrderBody(
+                direction=order_data_dict["direction"],
+                ticker=order_data_dict["ticker"],
+                qty=order_data_dict["qty"],
+            )
+            response_data = {
+                "id": order_data_dict["id"],
+                "status": order_data_dict["status"],
+                "user_id": order_data_dict["user_id"],
+                "timestamp": order_data_dict["timestamp"],
+                "filled_qty": order_data_dict["filled_qty"],
+                "body": order_body,
+            }
+            return MarketOrderResponse.model_validate(response_data)
+
+    async def _get_order_from_db_by_id_mapped(
+        self, order_id: uuid.UUID
+    ) -> Optional[AnyOrderResponse]:
+        """Загружает ордер из БД и мапит его в соответствующую схему ответа."""
+        stmt = select(orders_table).where(orders_table.c.id == order_id)
+        result = await self.db.execute(stmt)
+        order_row = result.mappings().one_or_none()
+        return await self._map_row_to_any_order_response(order_row)
+
     async def create_order(
         self, current_user: User, order_data: Union[MarketOrderBody, LimitOrderBody]
-    ) -> OrderBase:
+    ) -> CreateOrderResponse:
         order_id_obj = uuid.uuid4()
         user_id_obj = current_user.id
-        price_value = None
+        price_value = getattr(order_data, "price", None)
         is_limit_order = isinstance(order_data, LimitOrderBody)
 
         if is_limit_order:
@@ -141,31 +197,18 @@ class OrderService:
             .returning(orders_table.c.id)
         )
 
+        created_order_id_from_db = None
         try:
             result = await self.db.execute(insert_stmt)
-            created_order_id = result.scalar_one()
+            created_order_id_from_db = result.scalar_one()
 
-            if not created_order_id:
-                logger.error(
-                    f"Order creation failed for user {user_id_obj} after funds were blocked, no ID returned."
-                )
-                raise Exception(
-                    "Order creation post-block failed unexpectedly (no ID)."
-                )
+            if not created_order_id_from_db:
+                raise Exception("Order creation failed (no ID returned).")
 
-            await self.matching_engine.process_new_order(created_order_id)
-            logger.info(f"Matching engine processed order {created_order_id}")
+            await self.matching_engine.process_new_order(created_order_id_from_db)
+            logger.info(f"Matching engine processed order {created_order_id_from_db}")
 
-            final_order_state = await self._get_order_from_db_by_id(created_order_id)
-            if not final_order_state:
-                logger.error(
-                    f"Order {created_order_id} not found after matching attempt. This should not happen."
-                )
-                raise Exception(
-                    f"Order {created_order_id} disappeared after matching attempt."
-                )
-
-            return final_order_state
+            return CreateOrderResponse(order_id=created_order_id_from_db)
 
         except Exception as e:
             logger.error(
@@ -176,17 +219,17 @@ class OrderService:
 
     async def get_order_by_id_for_user(
         self, order_id: uuid.UUID, user_id: uuid.UUID
-    ) -> Optional[OrderBase]:
+    ) -> Optional[AnyOrderResponse]:
         stmt = select(orders_table).where(
             (orders_table.c.id == order_id) & (orders_table.c.user_id == user_id)
         )
         result = await self.db.execute(stmt)
         order_row = result.mappings().one_or_none()
-        return await self._map_row_to_order_base(order_row)
+        return await self._map_row_to_any_order_response(order_row)
 
     async def get_orders_by_user(
         self, user_id: uuid.UUID, limit: int = 100, offset: int = 0
-    ) -> List[OrderBase]:
+    ) -> List[AnyOrderResponse]:
         stmt = (
             select(orders_table)
             .where(orders_table.c.user_id == user_id)
@@ -198,11 +241,11 @@ class OrderService:
         result = await self.db.execute(stmt)
         order_rows = result.mappings().all()
 
-        orders_list = [
-            mapped_order
-            for row in order_rows
-            if (mapped_order := await self._map_row_to_order_base(row)) is not None
-        ]
+        orders_list = []
+        for row in order_rows:
+            mapped_order = await self._map_row_to_any_order_response(row)
+            if mapped_order:
+                orders_list.append(mapped_order)
         return orders_list
 
     async def cancel_order(self, order_id: uuid.UUID, current_user: User) -> bool:
@@ -233,7 +276,6 @@ class OrderService:
         if remaining_qty_to_unblock > 0:
             amount_to_unblock = 0
             ticker_to_unblock = ""
-
             if order_to_cancel_row["direction"] == Direction.BUY:
                 ticker_to_unblock = "RUB"
                 if order_to_cancel_row["price"] is not None:
@@ -244,7 +286,6 @@ class OrderService:
                     logger.warning(
                         f"Market BUY order {order_id}: Cannot determine amount to unblock without original locked amount or price."
                     )
-
             elif order_to_cancel_row["direction"] == Direction.SELL:
                 ticker_to_unblock = order_to_cancel_row["ticker"]
                 amount_to_unblock = remaining_qty_to_unblock
@@ -269,10 +310,8 @@ class OrderService:
                 )
                 .returning(orders_table.c.id)
             )
-
             result = await self.db.execute(update_stmt)
             updated_id = result.scalar_one_or_none()
-
             if updated_id:
                 logger.info(
                     f"Order {order_id} successfully cancelled and funds (if any) unblocked by user {user_id}."

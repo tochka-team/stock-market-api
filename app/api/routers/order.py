@@ -9,10 +9,10 @@ from app.api.deps import get_current_user
 from app.db.connection import get_db_connection
 from app.schemas.common import OkResponse
 from app.schemas.order import (
+    AnyOrderResponse,
     CreateOrderResponse,
     LimitOrderBody,
     MarketOrderBody,
-    OrderBase,
 )
 from app.schemas.user import User
 from app.services.order_service import OrderService
@@ -40,10 +40,10 @@ async def create_order_endpoint(
 ):
     order_service = OrderService(db)
     try:
-        created_order = await order_service.create_order(
+        response = await order_service.create_order(
             current_user=current_user, order_data=order_payload
         )
-        return CreateOrderResponse(order_id=created_order.id)
+        return response
     except Exception as e:
         logger.error(
             f"Error creating order for user {current_user.id}: {e}", exc_info=True
@@ -56,7 +56,7 @@ async def create_order_endpoint(
 
 @router.get(
     "/{order_id}",
-    response_model=OrderBase,
+    response_model=AnyOrderResponse,
     summary="Get Order Details",
     description="Получение информации о конкретной заявке пользователя.",
 )
@@ -79,7 +79,7 @@ async def get_order_details_endpoint(
 
 @router.get(
     "",
-    response_model=List[OrderBase],
+    response_model=List[AnyOrderResponse],
     summary="List User Orders",
     description="Получение списка всех заявок пользователя (в будущем можно добавить фильтры).",
 )
