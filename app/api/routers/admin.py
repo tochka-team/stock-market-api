@@ -1,4 +1,4 @@
-from uuid import UUID
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -8,6 +8,7 @@ from app.db.connection import get_db_connection
 from app.schemas.balance import AdminBalanceChangeRequest
 from app.schemas.common import OkResponse
 from app.schemas.instrument import Instrument
+from app.schemas.user import User
 from app.services.admin_service import AdminService
 from app.services.balance_service import BalanceService
 from app.services.instrument_service import InstrumentService
@@ -21,26 +22,27 @@ router = APIRouter(
 
 @router.delete(
     "/user/{user_id}",
-    response_model=OkResponse,
+    response_model=User,
     summary="Delete user",
     description="Удаление пользователя по user_id",
 )
-async def delete_user_endpoint(
-    user_id: UUID, db: AsyncConnection = Depends(get_db_connection)
+async def admin_delete_user_endpoint(
+    user_id: uuid.UUID, db: AsyncConnection = Depends(get_db_connection)
 ):
     admin_service = AdminService(db)
     try:
-        deleted = await admin_service.delete_user(user_id=user_id)
-        if not deleted:
+        deleted_user_data = await admin_service.delete_user(user_id=user_id)
+
+        if not deleted_user_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"User with ID {user_id} not found.",
+                detail=f"User with ID '{user_id}' not found.",
             )
-        return OkResponse(success=True)
+        return deleted_user_data
     except HTTPException:
-        raise  # Перехватываем только для логирования
+        raise
     except Exception as e:
-        print(f"Admin delete_user_endpoint error: {e}")
+        print(f"Admin delete_user_endpoint error for user_id {user_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while deleting the user.",
