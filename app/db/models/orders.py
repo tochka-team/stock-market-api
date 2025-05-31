@@ -33,7 +33,7 @@ orders_table = Table(
         ForeignKey(
             instruments_table.c.ticker,
             name="fk_orders_instrument_ticker",
-            ondelete="RESTRICT",
+            ondelete="CASCADE",
         ),
         nullable=False,
     ),

@@ -15,7 +15,7 @@ router = APIRouter(prefix="/balance", tags=["Balance"])
 
 
 @router.get(
-    "/",
+    "",
     response_model=Dict[str, int],
     summary="Get User Balances by Ticker",
     description="Получение балансов пользователя по всем имеющимся тикерам",
