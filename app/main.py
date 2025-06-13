@@ -8,7 +8,25 @@ from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.db.connection import check_db_connection, close_db_connection
 
-logging.basicConfig(level=logging.DEBUG)
+import os
+
+# Настройка логирования
+log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+log_level = logging.DEBUG
+
+# Создаем директорию для логов если её нет
+os.makedirs("/app/logs", exist_ok=True)
+
+# Настраиваем логирование в файл и консоль
+logging.basicConfig(
+    level=log_level,
+    format=log_format,
+    handlers=[
+        logging.FileHandler("/app/logs/app.log", encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
@@ -57,4 +75,4 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 
 if __name__ == "__main__":
     print("Starting Uvicorn server directly...")
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8080, reload=True)

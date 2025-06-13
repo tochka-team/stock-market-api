@@ -21,14 +21,14 @@
 
     ```bash
     alembic upgrade head
-    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
     ```
 
-После успешного запуска сервер будет доступен по адресу http://localhost:8000:
+После успешного запуска сервер будет доступен по адресу http://localhost:8080:
 
-- Интерактивная документация (Swagger UI): http://localhost:8000/api/v1/docs
+- Интерактивная документация (Swagger UI): http://localhost:8080/api/v1/docs
 
-- Альтернативная документация (ReDoc): http://localhost:8000/api/v1/redoc
+- Альтернативная документация (ReDoc): http://localhost:8080/api/v1/redoc
 
 ## Внесение изменений в репозиторий (Workflow)
 
