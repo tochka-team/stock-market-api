@@ -127,6 +127,21 @@ class MatchingEngine:
             )
             return
 
+        # Запоминаем исходные заблокированные средства для market orders
+        original_locked_amount = 0
+        is_market_buy = (current_new_order_state.direction == Direction.BUY and 
+                        current_new_order_state.price is None)
+        
+        if is_market_buy:
+            # Получаем текущие заблокированные RUB
+            rub_balance = await self.balance_service._get_or_create_balance_record(
+                current_new_order_state.user_id, "RUB", create_if_not_exists=False
+            )
+            if rub_balance:
+                original_locked_amount = rub_balance["locked_amount"]
+
+        total_spent = 0  # Отслеживаем реально потраченные средства для market orders
+
         while (current_new_order_state.qty - current_new_order_state.filled_qty) > 0:
             logger.debug(
                 f"Order {new_order_id}: Looking for a match. Remaining qty: {current_new_order_state.qty - current_new_order_state.filled_qty}"
@@ -183,6 +198,10 @@ class MatchingEngine:
                     trade_qty=trade_qty,
                     trade_price=trade_price,
                 )
+
+                # Отслеживаем потраченные средства для market BUY orders
+                if is_market_buy and current_new_order_state.user_id == buyer_id:
+                    total_spent += trade_qty * trade_price
 
                 transaction_id = uuid.uuid4()
                 insert_tx_stmt = insert(transactions_table).values(
@@ -263,6 +282,21 @@ class MatchingEngine:
                     exc_info=True,
                 )
                 raise
+                
+        # Возвращаем неиспользованные средства для market BUY orders
+        if is_market_buy and original_locked_amount > 0:
+            unused_amount = original_locked_amount - total_spent
+            if unused_amount > 0:
+                logger.info(f"Returning {unused_amount} unused RUB for market BUY order {new_order_id}")
+                try:
+                    await self.balance_service.unblock_funds(
+                        user_id=current_new_order_state.user_id,
+                        ticker="RUB",
+                        amount=unused_amount,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to return unused funds for order {new_order_id}: {e}")
+                    
         logger.info(
             f"MatchingEngine: Finished processing for order {new_order_id}. Final status: {current_new_order_state.status if current_new_order_state else 'N/A'}, Filled: {current_new_order_state.filled_qty if current_new_order_state else 'N/A'}"
         )

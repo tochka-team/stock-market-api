@@ -34,7 +34,7 @@ async def get_balances_endpoint(
 ):
     balance_service = BalanceService(db)
     try:
-        balances = await balance_service.get_user_balance(user_id=current_user.id)
+        balances = await balance_service.get_all_balances(user_id=current_user.id)
         return balances
     except Exception as e:
         logger.error(
