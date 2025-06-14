@@ -1,4 +1,3 @@
-# app/schemas/order.py
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -56,22 +55,29 @@ class OrderBase(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class OrderResponseBase(BaseModel):
+class MarketOrderResponse(BaseModel):
+    """MarketOrder response - БЕЗ поля filled согласно OpenAPI спецификации"""
+
     id: uuid.UUID
     status: OrderStatus
     user_id: uuid.UUID
     timestamp: datetime
-    filled_qty: int = Field(default=0, alias="filled")
-
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-
-
-class MarketOrderResponse(OrderResponseBase):
     body: MarketOrderBody
 
+    model_config = ConfigDict(from_attributes=True)
 
-class LimitOrderResponse(OrderResponseBase):
+
+class LimitOrderResponse(BaseModel):
+    """LimitOrder response - С полем filled согласно OpenAPI спецификации"""
+
+    id: uuid.UUID
+    status: OrderStatus
+    user_id: uuid.UUID
+    timestamp: datetime
     body: LimitOrderBody
+    filled: int = Field(default=0)
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 AnyOrderResponse = Union[MarketOrderResponse, LimitOrderResponse]

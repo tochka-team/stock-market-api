@@ -119,11 +119,10 @@ async def admin_deposit_funds(
 ):
     balance_service = BalanceService(db)
     try:
-        await balance_service.admin_update_or_create_balance(
+        await balance_service.admin_deposit(
             user_id=request_data.user_id,
             ticker=request_data.ticker,
-            change_amount=request_data.amount,
-            operation="deposit",
+            amount=request_data.amount,
         )
         return OkResponse(success=True)
     except ValueError as ve:
@@ -147,13 +146,11 @@ async def admin_withdraw_funds(
     request_data: AdminBalanceChangeRequest,
     db: AsyncConnection = Depends(get_db_connection),
 ):
-    balance_service = BalanceService(db)
+    BalanceService(db)
     try:
-        await balance_service.admin_update_or_create_balance(
-            user_id=request_data.user_id,
-            ticker=request_data.ticker,
-            change_amount=request_data.amount,
-            operation="withdraw",
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Withdraw operation not implemented",
         )
         return OkResponse(success=True)
     except ValueError as ve:

@@ -2,7 +2,8 @@ import logging
 import uuid
 from typing import Dict
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import and_, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models.balances import balances_table
@@ -14,211 +15,237 @@ class BalanceService:
     def __init__(self, db: AsyncConnection):
         self.db = db
 
-    async def get_user_balance(self, user_id: uuid.UUID) -> Dict[str, int]:
+    async def get_balance(self, user_id: uuid.UUID, ticker: str) -> int:
         """
-        Получает все балансы пользователя (денежные и активы) из таблицы `balances`.
-        Возвращает словарь, где ключ - тикер, значение - количество.
-        Например: {"RUB": 10000, "AAPL": 5, "MEMCOIN": 1000}
+        Получить баланс пользователя для указанного тикера.
+        Возвращает только amount.
         """
-        logger.debug(f"Fetching all balances for user_id: {user_id}")
-
-        stmt = select(balances_table.c.ticker, balances_table.c.amount).where(
-            balances_table.c.user_id == user_id
+        stmt = select(balances_table.c.amount).where(
+            and_(balances_table.c.user_id == user_id, balances_table.c.ticker == ticker)
         )
-
         result = await self.db.execute(stmt)
-        user_balances_rows = result.mappings().all()
+        balance = result.scalar()
 
-        balances_dict: Dict[str, int] = {}
-        for row in user_balances_rows:
-            balances_dict[row["ticker"]] = row["amount"]
-        if "RUB" not in balances_dict:
-            balances_dict["RUB"] = 0
+        return balance if balance is not None else 0
 
-        logger.info(f"Fetched balances for user {user_id}: {balances_dict}")
-        return balances_dict
+    async def get_all_balances(self, user_id: uuid.UUID) -> Dict[str, int]:
+        """
+        Получить все балансы пользователя.
+        Возвращает только положительные балансы.
+        """
+        stmt = select(balances_table.c.ticker, balances_table.c.amount).where(
+            and_(balances_table.c.user_id == user_id, balances_table.c.amount > 0)
+        )
+        result = await self.db.execute(stmt)
+        balances = result.fetchall()
 
-    async def admin_update_or_create_balance(
+        return {row.ticker: row.amount for row in balances}
+
+    async def admin_deposit(self, user_id: uuid.UUID, ticker: str, amount: int):
+        """
+        Административное пополнение баланса пользователя.
+        """
+        logger.info(
+            f"Admin deposit: user_id={user_id}, ticker={ticker}, amount={amount}"
+        )
+
+        await self._ensure_balance_exists(user_id, ticker)
+
+        update_stmt = (
+            update(balances_table)
+            .where(
+                and_(
+                    balances_table.c.user_id == user_id,
+                    balances_table.c.ticker == ticker,
+                )
+            )
+            .values(amount=balances_table.c.amount + amount)
+        )
+
+        await self.db.execute(update_stmt)
+        logger.info(f"Admin deposit completed: {amount} {ticker} to user {user_id}")
+
+    async def execute_trade_atomic(
         self,
-        user_id: uuid.UUID,
+        buyer_id: uuid.UUID,
+        seller_id: uuid.UUID,
         ticker: str,
-        change_amount: int,
-        operation: str = "deposit",
-    ) -> bool:
+        trade_qty: int,
+        trade_price: int,
+    ):
         """
-        Административная функция для пополнения или списания баланса.
-        change_amount: положительное для пополнения, отрицательное для списания.
-        operation: "deposit" или "withdraw" для логирования и проверки.
+        Все проверки и операции в одной транзакции с блокировками.
         """
-        if operation == "deposit" and change_amount <= 0:
-            raise ValueError("Deposit amount must be positive.")
-        if operation == "withdraw" and change_amount <= 0:
-            raise ValueError("Withdrawal amount must be positive.")
+        total_rub = trade_qty * trade_price
 
-        current_balance_stmt = select(balances_table.c.amount).where(
-            (balances_table.c.user_id == user_id) & (balances_table.c.ticker == ticker)
-        )
-        current_balance_res = await self.db.execute(current_balance_stmt)
-        current_amount = current_balance_res.scalar_one_or_none()
-
-        if current_amount is not None:
-            new_amount = current_amount
-            if operation == "deposit":
-                new_amount += change_amount
-            elif operation == "withdraw":
-                if current_amount < change_amount:
-                    logger.warning(
-                        f"Insufficient balance for withdrawal: user {user_id}, ticker {ticker}, wants {change_amount}, has {current_amount}"
-                    )
-                    raise ValueError(
-                        f"Insufficient balance for ticker {ticker} to withdraw {change_amount}."
-                    )
-                new_amount -= change_amount
-
-            update_stmt = (
-                update(balances_table)
-                .where(
-                    (balances_table.c.user_id == user_id)
-                    & (balances_table.c.ticker == ticker)
-                )
-                .values(amount=new_amount)
-            )
-            await self.db.execute(update_stmt)
-            logger.info(
-                f"Admin {operation}: Updated balance for user {user_id}, ticker {ticker} to {new_amount}"
-            )
-        else:
-            if operation == "withdraw":
-                logger.warning(
-                    f"Admin withdrawal attempt from non-existent balance: user {user_id}, ticker {ticker}"
-                )
-                raise ValueError(
-                    f"Cannot withdraw from non-existent balance for ticker {ticker}."
-                )
-
-            insert_stmt = insert(balances_table).values(
-                user_id=user_id,
-                ticker=ticker,
-                amount=change_amount,
-                locked_amount=0,
-            )
-            await self.db.execute(insert_stmt)
-            logger.info(
-                f"Admin {operation}: Created balance for user {user_id}, ticker {ticker} with amount {change_amount}"
-            )
-
-        return True
-
-    async def _get_or_create_balance_record(
-        self, user_id: uuid.UUID, ticker: str, create_if_not_exists: bool = True
-    ) -> Dict:
-        """Вспомогательный метод для получения или создания записи баланса."""
-        select_stmt = select(
-            balances_table.c.amount, balances_table.c.locked_amount
-        ).where(
-            (balances_table.c.user_id == user_id) & (balances_table.c.ticker == ticker)
-        )
-        result = await self.db.execute(select_stmt)
-        balance_record = result.mappings().one_or_none()
-
-        if not balance_record and create_if_not_exists:
-            logger.info(
-                f"No balance record for user {user_id}, ticker {ticker}. Creating one with 0 amounts."
-            )
-            insert_stmt = (
-                insert(balances_table)
-                .values(user_id=user_id, ticker=ticker, amount=0, locked_amount=0)
-                .returning(balances_table.c.amount, balances_table.c.locked_amount)
-            )
-
-            created_result = await self.db.execute(insert_stmt)
-            balance_record = created_result.mappings().one()
-            logger.info(
-                f"Created balance record for user {user_id}, ticker {ticker}: {balance_record}"
-            )
-
-        elif not balance_record and not create_if_not_exists:
-            return None
-
-        return balance_record
-
-    async def block_funds(
-        self, user_id: uuid.UUID, ticker: str, amount_to_block: int
-    ) -> bool:
-        """
-        Блокирует указанное количество средств/активов на балансе пользователя.
-        Уменьшает 'amount' и увеличивает 'locked_amount'.
-        Возвращает True при успехе, False или выбрасывает ValueError при неудаче.
-        """
-        if amount_to_block <= 0:
-            raise ValueError("Amount to block must be positive.")
-
-        balance_record = await self._get_or_create_balance_record(
-            user_id, ticker, create_if_not_exists=False
+        logger.info(
+            f"Executing atomic trade: buyer={buyer_id}, seller={seller_id}, ticker={ticker}, qty={trade_qty}, price={trade_price}"
         )
 
-        if not balance_record or balance_record["amount"] < amount_to_block:
-            logger.warning(
-                f"Insufficient available balance for user {user_id}, ticker {ticker} "
-                f"to block {amount_to_block}. Available: {balance_record.get('amount', 0) if balance_record else 0}"
+        await self._ensure_balance_exists(buyer_id, "RUB")
+        await self._ensure_balance_exists(buyer_id, ticker)
+        await self._ensure_balance_exists(seller_id, "RUB")
+        await self._ensure_balance_exists(seller_id, ticker)
+
+        buyer_rub_stmt = (
+            select(balances_table.c.amount)
+            .where(
+                and_(
+                    balances_table.c.user_id == buyer_id,
+                    balances_table.c.ticker == "RUB",
+                )
             )
-            return False
+            .with_for_update()
+        )
 
-        new_amount = balance_record["amount"] - amount_to_block
-        new_locked_amount = balance_record["locked_amount"] + amount_to_block
+        buyer_ticker_stmt = (
+            select(balances_table.c.amount)
+            .where(
+                and_(
+                    balances_table.c.user_id == buyer_id,
+                    balances_table.c.ticker == ticker,
+                )
+            )
+            .with_for_update()
+        )
 
-        update_stmt = (
+        seller_rub_stmt = (
+            select(balances_table.c.amount)
+            .where(
+                and_(
+                    balances_table.c.user_id == seller_id,
+                    balances_table.c.ticker == "RUB",
+                )
+            )
+            .with_for_update()
+        )
+
+        seller_ticker_stmt = (
+            select(balances_table.c.amount)
+            .where(
+                and_(
+                    balances_table.c.user_id == seller_id,
+                    balances_table.c.ticker == ticker,
+                )
+            )
+            .with_for_update()
+        )
+
+        buyer_rub_balance = (await self.db.execute(buyer_rub_stmt)).scalar() or 0
+        buyer_ticker_balance = (await self.db.execute(buyer_ticker_stmt)).scalar() or 0
+        seller_rub_balance = (await self.db.execute(seller_rub_stmt)).scalar() or 0
+        seller_ticker_balance = (
+            await self.db.execute(seller_ticker_stmt)
+        ).scalar() or 0
+
+        if buyer_rub_balance < total_rub:
+            raise ValueError(
+                f"Buyer {buyer_id} has insufficient RUB: {buyer_rub_balance} < {total_rub}"
+            )
+
+        if seller_ticker_balance < trade_qty:
+            raise ValueError(
+                f"Seller {seller_id} has insufficient {ticker}: {seller_ticker_balance} < {trade_qty}"
+            )
+
+        await self.db.execute(
             update(balances_table)
             .where(
-                (balances_table.c.user_id == user_id)
-                & (balances_table.c.ticker == ticker)
+                and_(
+                    balances_table.c.user_id == buyer_id,
+                    balances_table.c.ticker == "RUB",
+                )
             )
-            .values(amount=new_amount, locked_amount=new_locked_amount)
-        )
-        await self.db.execute(update_stmt)
-        logger.info(
-            f"Blocked {amount_to_block} of {ticker} for user {user_id}. New available: {new_amount}, new locked: {new_locked_amount}"
-        )
-        return True
-
-    async def unblock_funds(
-        self, user_id: uuid.UUID, ticker: str, amount_to_unblock: int
-    ) -> bool:
-        """
-        Разблокирует указанное количество средств/активов на балансе пользователя.
-        Уменьшает 'locked_amount' и увеличивает 'amount'.
-        Возвращает True при успехе, False или выбрасывает ValueError при неудаче.
-        """
-        if amount_to_unblock <= 0:
-            raise ValueError("Amount to unblock must be positive.")
-
-        balance_record = await self._get_or_create_balance_record(
-            user_id, ticker, create_if_not_exists=False
+            .values(amount=buyer_rub_balance - total_rub)
         )
 
-        if not balance_record or balance_record["locked_amount"] < amount_to_unblock:
-            logger.warning(
-                f"Insufficient locked balance for user {user_id}, ticker {ticker} "
-                f"to unblock {amount_to_unblock}. Locked: {balance_record.get('locked_amount', 0) if balance_record else 0}"
-            )
-            return False
-
-        new_amount = balance_record["amount"] + amount_to_unblock
-        new_locked_amount = balance_record["locked_amount"] - amount_to_unblock
-
-        update_stmt = (
+        await self.db.execute(
             update(balances_table)
             .where(
-                (balances_table.c.user_id == user_id)
-                & (balances_table.c.ticker == ticker)
+                and_(
+                    balances_table.c.user_id == buyer_id,
+                    balances_table.c.ticker == ticker,
+                )
             )
-            .values(amount=new_amount, locked_amount=new_locked_amount)
+            .values(amount=buyer_ticker_balance + trade_qty)
         )
-        await self.db.execute(update_stmt)
+
+        await self.db.execute(
+            update(balances_table)
+            .where(
+                and_(
+                    balances_table.c.user_id == seller_id,
+                    balances_table.c.ticker == "RUB",
+                )
+            )
+            .values(amount=seller_rub_balance + total_rub)
+        )
+
+        await self.db.execute(
+            update(balances_table)
+            .where(
+                and_(
+                    balances_table.c.user_id == seller_id,
+                    balances_table.c.ticker == ticker,
+                )
+            )
+            .values(amount=seller_ticker_balance - trade_qty)
+        )
+
         logger.info(
-            f"Unblocked {amount_to_unblock} of {ticker} for user {user_id}. New available: {new_amount}, new locked: {new_locked_amount}"
+            f"Atomic trade executed successfully: {trade_qty} {ticker} @ {trade_price} RUB"
         )
+
+    async def _ensure_balance_exists(self, user_id: uuid.UUID, ticker: str):
+        """
+        Обеспечить существование записи баланса.
+        """
+        check_stmt = select(func.count()).where(
+            and_(balances_table.c.user_id == user_id, balances_table.c.ticker == ticker)
+        )
+        exists = (await self.db.execute(check_stmt)).scalar() > 0
+
+        if not exists:
+            try:
+                insert_stmt = balances_table.insert().values(
+                    user_id=user_id, ticker=ticker, amount=0, locked_amount=0
+                )
+                await self.db.execute(insert_stmt)
+                logger.debug(f"Created balance record: user {user_id}, ticker {ticker}")
+            except IntegrityError:
+                pass
+
+    async def check_sufficient_balance(
+        self, user_id: uuid.UUID, ticker: str, required_amount: int
+    ) -> bool:
+        """Простая проверка баланса"""
+        balance = await self.get_balance(user_id, ticker)
+        return balance >= required_amount
+
+    async def execute_trade_simple(
+        self,
+        buyer_id: uuid.UUID,
+        seller_id: uuid.UUID,
+        ticker: str,
+        trade_qty: int,
+        trade_price: int,
+    ):
+        """DEPRECATED: Используйте execute_trade_atomic"""
+        logger.warning(
+            "execute_trade_simple is deprecated - using execute_trade_atomic"
+        )
+        await self.execute_trade_atomic(
+            buyer_id, seller_id, ticker, trade_qty, trade_price
+        )
+
+    async def block_funds(self, user_id: uuid.UUID, ticker: str, amount: int) -> bool:
+        """DEPRECATED: Блокировка средств больше не используется"""
+        logger.warning("block_funds is deprecated - no longer blocking funds")
         return True
+
+    async def unblock_funds(self, user_id: uuid.UUID, ticker: str, amount: int):
+        """DEPRECATED: Разблокировка средств больше не используется"""
+        logger.warning("unblock_funds is deprecated - no longer unblocking funds")
 
     async def execute_trade_balances(
         self,
@@ -227,112 +254,11 @@ class BalanceService:
         ticker: str,
         trade_qty: int,
         trade_price: int,
-    ) -> bool:
-        """
-        Обновляет балансы покупателя и продавца после исполнения сделки.
-        - Покупатель: -деньги (из locked), +актив (в amount)
-        - Продавец: -актив (из locked), +деньги (в amount)
-        Все операции должны быть частью внешней транзакции.
-        Возвращает True при успехе. Выбрасывает исключение при ошибке (например, если что-то пошло не так с балансами).
-        """
-        if trade_qty <= 0 or trade_price <= 0:
-            raise ValueError("Trade quantity and price must be positive.")
-
-        money_ticker = "RUB"
-        total_trade_sum = trade_qty * trade_price
-
-        logger.info(
-            f"Executing trade balances: Buyer {buyer_id}, Seller {seller_id}, "
-            f"{trade_qty} of {ticker} @ {trade_price} (Total sum: {total_trade_sum} {money_ticker})"
+    ):
+        """DEPRECATED: Используйте execute_trade_atomic"""
+        logger.warning(
+            "execute_trade_balances is deprecated - using execute_trade_atomic"
         )
-
-        buyer_rub_balance = await self._get_or_create_balance_record(
-            buyer_id, money_ticker, create_if_not_exists=False
+        await self.execute_trade_atomic(
+            buyer_id, seller_id, ticker, trade_qty, trade_price
         )
-        buyer_asset_balance = await self._get_or_create_balance_record(
-            buyer_id, ticker, create_if_not_exists=True
-        )
-
-        if (
-            not buyer_rub_balance
-            or buyer_rub_balance["locked_amount"] < total_trade_sum
-        ):
-            logger.error(
-                f"CRITICAL: Buyer {buyer_id} has insufficient locked {money_ticker} for trade. "
-                f"Required: {total_trade_sum}, Locked: {buyer_rub_balance.get('locked_amount', 0) if buyer_rub_balance else 0}."
-            )
-            raise Exception(
-                f"Buyer {buyer_id} insufficient locked {money_ticker} for trade."
-            )
-
-        stmt_buyer_rub_update = (
-            update(balances_table)
-            .where(
-                (balances_table.c.user_id == buyer_id)
-                & (balances_table.c.ticker == money_ticker)
-            )
-            .values(locked_amount=balances_table.c.locked_amount - total_trade_sum)
-        )
-        await self.db.execute(stmt_buyer_rub_update)
-        logger.debug(
-            f"Buyer {buyer_id}: Decreased locked {money_ticker} by {total_trade_sum}."
-        )
-
-        stmt_buyer_asset_update = (
-            update(balances_table)
-            .where(
-                (balances_table.c.user_id == buyer_id)
-                & (balances_table.c.ticker == ticker)
-            )
-            .values(amount=balances_table.c.amount + trade_qty)
-        )
-        await self.db.execute(stmt_buyer_asset_update)
-        logger.debug(f"Buyer {buyer_id}: Increased {ticker} amount by {trade_qty}.")
-
-        seller_asset_balance = await self._get_or_create_balance_record(
-            seller_id, ticker, create_if_not_exists=False
-        )
-        seller_rub_balance = await self._get_or_create_balance_record(
-            seller_id, money_ticker, create_if_not_exists=True
-        )
-
-        if (
-            not seller_asset_balance
-            or seller_asset_balance["locked_amount"] < trade_qty
-        ):
-            logger.error(
-                f"CRITICAL: Seller {seller_id} has insufficient locked {ticker} for trade. "
-                f"Required: {trade_qty}, Locked: {seller_asset_balance.get('locked_amount', 0) if seller_asset_balance else 0}."
-            )
-            raise Exception(
-                f"Seller {seller_id} insufficient locked {ticker} for trade."
-            )
-
-        stmt_seller_asset_update = (
-            update(balances_table)
-            .where(
-                (balances_table.c.user_id == seller_id)
-                & (balances_table.c.ticker == ticker)
-            )
-            .values(locked_amount=balances_table.c.locked_amount - trade_qty)
-        )
-        await self.db.execute(stmt_seller_asset_update)
-        logger.debug(f"Seller {seller_id}: Decreased locked {ticker} by {trade_qty}.")
-
-        stmt_seller_rub_update = (
-            update(balances_table)
-            .where(
-                (balances_table.c.user_id == seller_id)
-                & (balances_table.c.ticker == money_ticker)
-            )
-            .values(amount=balances_table.c.amount + total_trade_sum)
-        )
-        await self.db.execute(stmt_seller_rub_update)
-        logger.debug(
-            f"Seller {seller_id}: Increased {money_ticker} amount by {total_trade_sum}."
-        )
-
-        logger.info(
-            f"Trade balances updated for ticker {ticker}, qty {trade_qty}, price {trade_price} between buyer {buyer_id} and seller {seller_id}"
-        )
-        return True

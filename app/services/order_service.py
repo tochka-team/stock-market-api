@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import List, Optional, Union
 
 from sqlalchemy import func, insert, select, update
@@ -34,7 +35,7 @@ class OrderService:
     async def _map_row_to_order_base(
         self, order_row: Optional[dict]
     ) -> Optional[OrderBase]:
-        """Вспомогательный метод для маппинга строки из БД в OrderBase с учетом alias."""
+        """Вспомогательный метод для маппинга строки из БД в OrderBase."""
         if not order_row:
             return None
 
@@ -57,45 +58,44 @@ class OrderService:
     async def _map_row_to_any_order_response(
         self, order_row: Optional[dict]
     ) -> Optional[AnyOrderResponse]:
-        """
-        Вспомогательный метод для маппинга строки из БД в MarketOrderResponse или LimitOrderResponse.
-        """
+        """Маппинг строки из БД в соответствующую схему ответа (Market или Limit)."""
         if not order_row:
             return None
 
-        order_data_dict = dict(order_row)
+        order_dict = dict(order_row)
 
-        if order_data_dict.get("price") is not None:
+        has_price = order_dict.get("price") is not None
+        direction = Direction(order_dict["direction"])
+        ticker = order_dict["ticker"]
+        qty = order_dict["qty"]
+        user_id = order_dict["user_id"]
+        order_id = order_dict["id"]
+        status = OrderStatus(order_dict["status"])
+        timestamp = order_dict["timestamp"]
+        filled_qty = order_dict.get("filled_qty", 0)
+
+        if has_price:
+            price = order_dict["price"]
             order_body = LimitOrderBody(
-                direction=order_data_dict["direction"],
-                ticker=order_data_dict["ticker"],
-                qty=order_data_dict["qty"],
-                price=order_data_dict["price"],
+                direction=direction, ticker=ticker, qty=qty, price=price
             )
-            response_data = {
-                "id": order_data_dict["id"],
-                "status": order_data_dict["status"],
-                "user_id": order_data_dict["user_id"],
-                "timestamp": order_data_dict["timestamp"],
-                "filled_qty": order_data_dict["filled_qty"],
-                "body": order_body,
-            }
-            return LimitOrderResponse.model_validate(response_data)
+            return LimitOrderResponse(
+                id=order_id,
+                user_id=user_id,
+                status=status,
+                timestamp=timestamp,
+                body=order_body,
+                filled=filled_qty,
+            )
         else:
-            order_body = MarketOrderBody(
-                direction=order_data_dict["direction"],
-                ticker=order_data_dict["ticker"],
-                qty=order_data_dict["qty"],
+            order_body = MarketOrderBody(direction=direction, ticker=ticker, qty=qty)
+            return MarketOrderResponse(
+                id=order_id,
+                user_id=user_id,
+                status=status,
+                timestamp=timestamp,
+                body=order_body,
             )
-            response_data = {
-                "id": order_data_dict["id"],
-                "status": order_data_dict["status"],
-                "user_id": order_data_dict["user_id"],
-                "timestamp": order_data_dict["timestamp"],
-                "filled_qty": order_data_dict["filled_qty"],
-                "body": order_body,
-            }
-            return MarketOrderResponse.model_validate(response_data)
 
     async def _get_order_from_db_by_id_mapped(
         self, order_id: uuid.UUID
@@ -109,70 +109,21 @@ class OrderService:
     async def create_order(
         self, current_user: User, order_data: Union[MarketOrderBody, LimitOrderBody]
     ) -> CreateOrderResponse:
+        """
+        Создание ордера.
+        Простые проверки, создание в БД, запуск матчинга.
+        """
         order_id_obj = uuid.uuid4()
         user_id_obj = current_user.id
         price_value = getattr(order_data, "price", None)
         is_limit_order = isinstance(order_data, LimitOrderBody)
 
-        if is_limit_order:
-            price_value = order_data.price
-            if price_value <= 0:
-                raise ValueError("Price for limit order must be positive.")
+        if is_limit_order and price_value <= 0:
+            raise ValueError("Price for limit order must be positive.")
 
         if order_data.qty <= 0:
             raise ValueError("Order quantity must be positive.")
 
-        ticker_to_block_or_check = ""
-        amount_to_block_or_check = 0
-
-        if order_data.direction == Direction.BUY:
-            ticker_to_block_or_check = "RUB"
-            if not is_limit_order:
-                logger.warning(
-                    f"Market BUY order for user {user_id_obj} - balance blocking not implemented based on estimated price yet."
-                )
-
-            elif price_value:
-                amount_to_block_or_check = price_value * order_data.qty
-
-        elif order_data.direction == Direction.SELL:
-            ticker_to_block_or_check = order_data.ticker
-            amount_to_block_or_check = order_data.qty
-
-        if (
-            not ticker_to_block_or_check
-            or (
-                is_limit_order
-                and order_data.direction == Direction.BUY
-                and amount_to_block_or_check <= 0
-            )
-            or (
-                order_data.direction == Direction.SELL and amount_to_block_or_check <= 0
-            )
-        ):
-            if not (
-                order_data.direction == Direction.BUY
-                and not is_limit_order
-                and amount_to_block_or_check == 0
-            ):
-                raise ValueError(
-                    "Invalid order parameters for balance check or zero amount to block."
-                )
-
-        if amount_to_block_or_check > 0:
-            blocked_successfully = await self.balance_service.block_funds(
-                user_id=user_id_obj,
-                ticker=ticker_to_block_or_check,
-                amount_to_block=amount_to_block_or_check,
-            )
-            if not blocked_successfully:
-                raise ValueError(
-                    f"Insufficient balance of {ticker_to_block_or_check} to place order."
-                )
-        else:
-            logger.info(
-                f"No funds to block for order type {order_data.direction} (likely market BUY without price estimation)."
-            )
         instrument_exists_stmt = select(func.count(instruments_table.c.id)).where(
             instruments_table.c.ticker == order_data.ticker
         )
@@ -182,46 +133,52 @@ class OrderService:
             raise ValueError(
                 f"Instrument with ticker '{order_data.ticker}' does not exist."
             )
-        insert_stmt = (
-            insert(orders_table)
-            .values(
-                id=order_id_obj,
-                user_id=user_id_obj,
-                ticker=order_data.ticker,
-                direction=order_data.direction,
-                qty=order_data.qty,
-                price=price_value,
-                status=OrderStatus.NEW,
-                filled_qty=0,
-            )
-            .returning(orders_table.c.id)
+
+        insert_stmt = insert(orders_table).values(
+            id=order_id_obj,
+            user_id=user_id_obj,
+            ticker=order_data.ticker,
+            direction=order_data.direction,
+            qty=order_data.qty,
+            price=price_value,
+            status=OrderStatus.NEW,
+            filled_qty=0,
+        )
+        await self.db.execute(insert_stmt)
+
+        logger.info(
+            f"Created order {order_id_obj}: {order_data.direction} {order_data.qty} {order_data.ticker}"
+            + (f" @ {price_value}" if price_value else " (market)")
         )
 
-        created_order_id_from_db = None
+        order_base = OrderBase(
+            id=order_id_obj,
+            user_id=user_id_obj,
+            timestamp=datetime.now(timezone.utc),
+            direction=order_data.direction,
+            ticker=order_data.ticker,
+            qty=order_data.qty,
+            price=price_value,
+            status=OrderStatus.NEW,
+            filled_qty=0,
+        )
+
         try:
-            result = await self.db.execute(insert_stmt)
-            created_order_id_from_db = result.scalar_one()
-
-            if not created_order_id_from_db:
-                raise Exception("Order creation failed (no ID returned).")
-
-            await self.matching_engine.process_new_order(created_order_id_from_db)
-            logger.info(f"Matching engine processed order {created_order_id_from_db}")
-
-            return CreateOrderResponse(order_id=created_order_id_from_db)
-
-        except Exception as e:
-            logger.error(
-                f"Error in create_order service for user {user_id_obj}: {e}",
-                exc_info=True,
+            await self.matching_engine.process_order(order_base, user_id_obj)
+        except ValueError as e:
+            logger.info(
+                f"Order {order_id_obj} processing completed with business logic error: {e}"
             )
-            raise
+        except Exception as e:
+            logger.error(f"System error during order matching for {order_id_obj}: {e}")
+
+        return CreateOrderResponse(order_id=order_id_obj)
 
     async def get_order_by_id_for_user(
         self, order_id: uuid.UUID, user_id: uuid.UUID
     ) -> Optional[AnyOrderResponse]:
         stmt = select(orders_table).where(
-            (orders_table.c.id == order_id) & (orders_table.c.user_id == user_id)
+            orders_table.c.id == order_id, orders_table.c.user_id == user_id
         )
         result = await self.db.execute(stmt)
         order_row = result.mappings().one_or_none()
@@ -237,87 +194,39 @@ class OrderService:
             .limit(limit)
             .offset(offset)
         )
-
         result = await self.db.execute(stmt)
         order_rows = result.mappings().all()
 
-        orders_list = []
+        orders = []
         for row in order_rows:
-            mapped_order = await self._map_row_to_any_order_response(row)
-            if mapped_order:
-                orders_list.append(mapped_order)
-        return orders_list
+            order_response = await self._map_row_to_any_order_response(row)
+            if order_response:
+                orders.append(order_response)
+
+        return orders
 
     async def cancel_order(self, order_id: uuid.UUID, current_user: User) -> bool:
-        user_id = current_user.id
-        logger.debug(f"Attempting to cancel order {order_id} for user {user_id}")
+        """
+        Отменяет ордер пользователя. Упрощенная логика.
+        """
+        order = await self._get_order_from_db_by_id(order_id)
 
-        get_order_stmt = select(orders_table).where(orders_table.c.id == order_id)
-        order_res = await self.db.execute(get_order_stmt)
-        order_to_cancel_row = order_res.mappings().one_or_none()
+        if not order:
+            raise ValueError("Order not found")
 
-        if not order_to_cancel_row:
-            raise ValueError(f"Order with ID '{order_id}' not found.")
+        if order.user_id != current_user.id:
+            raise ValueError("Order does not belong to the current user")
 
-        if order_to_cancel_row["user_id"] != user_id:
-            raise PermissionError("User not authorized to cancel this order.")
+        if order.status not in [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]:
+            raise ValueError(f"Cannot cancel order with status {order.status}")
 
-        current_status = order_to_cancel_row["status"]
-        if current_status not in [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]:
-            raise ValueError(
-                f"Order cannot be cancelled. Current status: {current_status}."
-            )
-
-        unblocked_successfully = True
-        remaining_qty_to_unblock = (
-            order_to_cancel_row["qty"] - order_to_cancel_row["filled_qty"]
+        update_stmt = (
+            update(orders_table)
+            .where(orders_table.c.id == order_id)
+            .values(status=OrderStatus.CANCELLED)
         )
 
-        if remaining_qty_to_unblock > 0:
-            amount_to_unblock = 0
-            ticker_to_unblock = ""
-            if order_to_cancel_row["direction"] == Direction.BUY:
-                ticker_to_unblock = "RUB"
-                if order_to_cancel_row["price"] is not None:
-                    amount_to_unblock = (
-                        order_to_cancel_row["price"] * remaining_qty_to_unblock
-                    )
-                else:
-                    logger.warning(
-                        f"Market BUY order {order_id}: Cannot determine amount to unblock without original locked amount or price."
-                    )
-            elif order_to_cancel_row["direction"] == Direction.SELL:
-                ticker_to_unblock = order_to_cancel_row["ticker"]
-                amount_to_unblock = remaining_qty_to_unblock
+        await self.db.execute(update_stmt)
 
-            if ticker_to_unblock and amount_to_unblock > 0:
-                unblocked_successfully = await self.balance_service.unblock_funds(
-                    user_id=user_id,
-                    ticker=ticker_to_unblock,
-                    amount_to_unblock=amount_to_unblock,
-                )
-                if not unblocked_successfully:
-                    raise Exception(
-                        f"Critical error: Failed to unblock funds for order {order_id}. Cancellation aborted."
-                    )
-
-        if unblocked_successfully:
-            update_stmt = (
-                update(orders_table)
-                .where(orders_table.c.id == order_id)
-                .values(
-                    status=OrderStatus.CANCELLED,
-                )
-                .returning(orders_table.c.id)
-            )
-            result = await self.db.execute(update_stmt)
-            updated_id = result.scalar_one_or_none()
-            if updated_id:
-                logger.info(
-                    f"Order {order_id} successfully cancelled and funds (if any) unblocked by user {user_id}."
-                )
-                return True
-            else:
-                raise Exception("Failed to update order status after unblocking funds.")
-        else:
-            raise Exception("Fund unblocking failed, order cancellation aborted.")
+        logger.info(f"Cancelled order {order_id} for user {current_user.id}")
+        return True

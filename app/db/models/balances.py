@@ -32,7 +32,7 @@ balances_table = Table(
         ForeignKey(
             instruments_table.c.ticker,
             name="fk_balances_instrument_ticker",
-            ondelete="RESTRICT",
+            ondelete="CASCADE",
         ),
         nullable=False,
         comment="Тикер актива или валюты (e.g., 'AAPL', 'RUB')",

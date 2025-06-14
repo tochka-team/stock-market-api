@@ -19,9 +19,7 @@ class MatchingEngine:
         self.balance_service = BalanceService(db)
 
     async def _get_order_details(self, order_id: uuid.UUID) -> Optional[OrderBase]:
-        """
-        Загружает полную информацию об ордере из базы данных по его ID.
-        """
+        """Загружает полную информацию об ордере из базы данных по его ID."""
         stmt = select(orders_table).where(orders_table.c.id == order_id)
         result = await self.db.execute(stmt)
         order_row = result.mappings().one_or_none()
@@ -33,18 +31,32 @@ class MatchingEngine:
             return OrderBase.model_validate(order_dict)
         return None
 
+    async def _get_best_ask_price(self, ticker: str) -> Optional[int]:
+        """Получить лучшую цену ask"""
+        stmt = (
+            select(orders_table.c.price)
+            .where(
+                orders_table.c.ticker == ticker,
+                orders_table.c.direction == Direction.SELL,
+                orders_table.c.status.in_(
+                    [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]
+                ),
+                orders_table.c.price.is_not(None),
+                (orders_table.c.qty - orders_table.c.filled_qty) > 0,
+            )
+            .order_by(asc(orders_table.c.price))
+            .limit(1)
+        )
+
+        result = await self.db.execute(stmt)
+        return result.scalar()
+
     async def _find_best_match(self, order_to_match: OrderBase) -> Optional[OrderBase]:
         """
         Ищет лучший встречный активный ордер в стакане.
-        - Для BUY ордера: ищет самый дешевый SELL ордер (price ASC, timestamp ASC).
-        - Для SELL ордера: ищет самый дорогой BUY ордер (price DESC, timestamp ASC).
-        Учитывает только ордера со статусом NEW или PARTIALLY_EXECUTED и неисполненным остатком.
         """
         remaining_qty_to_match = order_to_match.qty - order_to_match.filled_qty
         if remaining_qty_to_match <= 0:
-            logger.debug(
-                f"Order {order_to_match.id} is already filled. No match finding needed."
-            )
             return None
 
         base_query = select(orders_table).where(
@@ -56,14 +68,12 @@ class MatchingEngine:
             orders_table.c.id != order_to_match.id,
         )
 
-        match_query = None
         if order_to_match.direction == Direction.BUY:
             match_query = base_query.where(orders_table.c.direction == Direction.SELL)
             if order_to_match.price is not None:
                 match_query = match_query.where(
                     orders_table.c.price <= order_to_match.price
                 )
-
             match_query = match_query.order_by(
                 asc(orders_table.c.price), asc(orders_table.c.timestamp)
             )
@@ -74,195 +84,274 @@ class MatchingEngine:
                 match_query = match_query.where(
                     orders_table.c.price >= order_to_match.price
                 )
-
             match_query = match_query.order_by(
                 desc(orders_table.c.price), asc(orders_table.c.timestamp)
             )
 
-        if match_query is None:
-            logger.error(
-                f"Could not determine match query for order {order_to_match.id} with direction {order_to_match.direction}"
-            )
+        else:
             return None
 
         best_match_stmt = match_query.limit(1)
-
-        logger.info(
-            f"MATCH_DEBUG: Finding match for order ID: {order_to_match.id}, Ticker: {order_to_match.ticker}, Direction: {order_to_match.direction}, Price: {order_to_match.price}, Qty: {order_to_match.qty}, Filled: {order_to_match.filled_qty}, UserID: {order_to_match.user_id}"
-        )
-
         result = await self.db.execute(best_match_stmt)
         match_row = result.mappings().one_or_none()
 
         if match_row:
-            logger.debug(
-                f"Found potential match for order {order_to_match.id}: order {match_row['id']}"
-            )
             order_dict = dict(match_row)
             if "filled_qty" in order_dict and "filled" not in order_dict:
                 order_dict["filled"] = order_dict.pop("filled_qty")
             return OrderBase.model_validate(order_dict)
 
-        logger.debug(
-            f"No suitable match found in order book for order {order_to_match.id}"
-        )
         return None
 
-    async def process_new_order(self, new_order_id: uuid.UUID):
-        logger.info(f"MatchingEngine: Starting processing for new order {new_order_id}")
+    async def process_order(self, order: OrderBase, user_id: uuid.UUID):
+        ticker = order.ticker
 
-        current_new_order_state = await self._get_order_details(new_order_id)
-
-        if not current_new_order_state:
-            logger.warning(f"Order {new_order_id} not found in DB for matching.")
-            return
-
-        if (
-            current_new_order_state.status
-            not in [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]
-            or (current_new_order_state.qty - current_new_order_state.filled_qty) <= 0
-        ):
-            logger.info(
-                f"Order {new_order_id} is not in a matchable state initially. Status: {current_new_order_state.status}, Remaining: {(current_new_order_state.qty - current_new_order_state.filled_qty)}."
-            )
-            return
-
-        while (current_new_order_state.qty - current_new_order_state.filled_qty) > 0:
-            logger.debug(
-                f"Order {new_order_id}: Looking for a match. Remaining qty: {current_new_order_state.qty - current_new_order_state.filled_qty}"
-            )
-
-            counter_order = await self._find_best_match(current_new_order_state)
-
-            if not counter_order:
-                logger.info(
-                    f"No further match found for order {new_order_id}. Order remains in book with remaining qty."
-                )
-                break
-
-            trade_price: int
-            if current_new_order_state.direction == Direction.BUY:
-                trade_price = counter_order.price
-            else:
-                trade_price = counter_order.price
-
-            remaining_qty_new = (
-                current_new_order_state.qty - current_new_order_state.filled_qty
-            )
-            remaining_qty_counter = counter_order.qty - counter_order.filled_qty
-            trade_qty = min(remaining_qty_new, remaining_qty_counter)
-
-            if trade_qty <= 0:
-                logger.warning(
-                    f"Calculated trade_qty is {trade_qty} for new_order {current_new_order_state.id} and counter_order {counter_order.id}. Breaking match loop."
-                )
-                break
-
-            logger.info(
-                f"Attempting trade: New Order {current_new_order_state.id} ({current_new_order_state.direction} rem: {remaining_qty_new} @ {current_new_order_state.price}) "
-                f"vs Counter Order {counter_order.id} ({counter_order.direction} rem: {remaining_qty_counter} @ {counter_order.price}). "
-                f"Trade: {trade_qty} @ {trade_price}."
-            )
-
-            try:
-                buyer_id = (
-                    current_new_order_state.user_id
-                    if current_new_order_state.direction == Direction.BUY
-                    else counter_order.user_id
-                )
-                seller_id = (
-                    current_new_order_state.user_id
-                    if current_new_order_state.direction == Direction.SELL
-                    else counter_order.user_id
-                )
-
-                await self.balance_service.execute_trade_balances(
-                    buyer_id=buyer_id,
-                    seller_id=seller_id,
-                    ticker=current_new_order_state.ticker,
-                    trade_qty=trade_qty,
-                    trade_price=trade_price,
-                )
-
-                transaction_id = uuid.uuid4()
-                insert_tx_stmt = insert(transactions_table).values(
-                    id=transaction_id,
-                    ticker=current_new_order_state.ticker,
-                    amount=trade_qty,
-                    price=trade_price,
-                    buy_order_id=(
-                        current_new_order_state.id
-                        if current_new_order_state.direction == Direction.BUY
-                        else counter_order.id
-                    ),
-                    sell_order_id=(
-                        current_new_order_state.id
-                        if current_new_order_state.direction == Direction.SELL
-                        else counter_order.id
-                    ),
-                    buyer_user_id=buyer_id,
-                    seller_user_id=seller_id,
-                )
-                await self.db.execute(insert_tx_stmt)
-                logger.info(f"Created transaction {transaction_id} for trade.")
-
-                new_order_filled_qty_after_trade = (
-                    current_new_order_state.filled_qty + trade_qty
-                )
-                new_order_status_after_trade = (
-                    OrderStatus.EXECUTED
-                    if new_order_filled_qty_after_trade == current_new_order_state.qty
-                    else OrderStatus.PARTIALLY_EXECUTED
-                )
-
-                update_new_order_stmt = (
-                    update(orders_table)
-                    .where(orders_table.c.id == current_new_order_state.id)
-                    .values(
-                        filled_qty=new_order_filled_qty_after_trade,
-                        status=new_order_status_after_trade,
-                    )
-                )
-                await self.db.execute(update_new_order_stmt)
-                logger.info(
-                    f"Updated new order {current_new_order_state.id}: filled_qty={new_order_filled_qty_after_trade}, status={new_order_status_after_trade.value}"
-                )
-
-                counter_order_filled_qty_after_trade = (
-                    counter_order.filled_qty + trade_qty
-                )
-                counter_order_status_after_trade = (
-                    OrderStatus.EXECUTED
-                    if counter_order_filled_qty_after_trade == counter_order.qty
-                    else OrderStatus.PARTIALLY_EXECUTED
-                )
-
-                update_counter_order_stmt = (
-                    update(orders_table)
-                    .where(orders_table.c.id == counter_order.id)
-                    .values(
-                        filled_qty=counter_order_filled_qty_after_trade,
-                        status=counter_order_status_after_trade,
-                    )
-                )
-                await self.db.execute(update_counter_order_stmt)
-                logger.info(
-                    f"Updated counter order {counter_order.id}: filled_qty became {counter_order_filled_qty_after_trade}, status={counter_order_status_after_trade.value}"
-                )
-
-                current_new_order_state.filled_qty = new_order_filled_qty_after_trade
-                current_new_order_state.status = new_order_status_after_trade
-
-                if current_new_order_state.status == OrderStatus.EXECUTED:
-                    logger.info(f"Order {new_order_id} is now fully EXECUTED.")
-                    break
-
-            except Exception as e:
-                logger.error(
-                    f"CRITICAL ERROR during trade execution in loop for new_order {new_order_id} (counter_order: {counter_order.id if counter_order else 'N/A'}): {e}",
-                    exc_info=True,
-                )
-                raise
         logger.info(
-            f"MatchingEngine: Finished processing for order {new_order_id}. Final status: {current_new_order_state.status if current_new_order_state else 'N/A'}, Filled: {current_new_order_state.filled_qty if current_new_order_state else 'N/A'}"
+            f"Processing order {order.id}: {order.direction} {order.qty} {ticker} @ {order.price}"
         )
+
+        await self.balance_service._ensure_balance_exists(user_id, "RUB")
+        await self.balance_service._ensure_balance_exists(user_id, ticker)
+
+        user_rub_balance = await self.balance_service.get_balance(user_id, "RUB")
+        user_ticker_balance = await self.balance_service.get_balance(user_id, ticker)
+
+        if order.direction == Direction.BUY:
+            if order.price is None:
+                best_ask = await self._get_best_ask_price(ticker)
+                if best_ask is None:
+                    raise ValueError("No liquidity for market order")
+                required_rub = order.qty * best_ask
+            else:
+                required_rub = order.qty * order.price
+
+            if user_rub_balance < required_rub:
+                raise ValueError(
+                    f"Insufficient RUB balance: {user_rub_balance} < {required_rub}"
+                )
+        else:
+            if user_ticker_balance < order.qty:
+                raise ValueError(
+                    f"Insufficient {ticker} balance: {user_ticker_balance} < {order.qty}"
+                )
+
+        if order.price is None:
+            await self._execute_market_order(order, user_id)
+        else:
+            await self._execute_limit_order(order, user_id)
+
+    async def _execute_market_order(self, order: OrderBase, user_id: uuid.UUID):
+        """Исполнение market ордера"""
+        ticker = order.ticker
+        remaining_qty = order.qty
+
+        opposite_direction = (
+            Direction.SELL if order.direction == Direction.BUY else Direction.BUY
+        )
+
+        opposite_orders_stmt = (
+            select(orders_table)
+            .where(
+                orders_table.c.ticker == ticker,
+                orders_table.c.direction == opposite_direction,
+                orders_table.c.status.in_(
+                    [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]
+                ),
+                (orders_table.c.qty - orders_table.c.filled_qty) > 0,
+            )
+            .order_by(
+                (
+                    asc(orders_table.c.price)
+                    if order.direction == Direction.BUY
+                    else desc(orders_table.c.price)
+                ),
+                asc(orders_table.c.timestamp),
+            )
+        )
+
+        result = await self.db.execute(opposite_orders_stmt)
+        opposite_orders = [
+            OrderBase.model_validate(dict(row)) for row in result.mappings()
+        ]
+
+        if not opposite_orders:
+            raise ValueError("No matching orders available for market execution")
+
+        executed = False
+        for opposite_order in opposite_orders:
+            if remaining_qty <= 0:
+                break
+
+            available_qty = opposite_order.qty - opposite_order.filled_qty
+            if available_qty <= 0:
+                continue
+
+            match_qty = min(remaining_qty, available_qty)
+            match_price = opposite_order.price
+
+            buyer_id = (
+                user_id if order.direction == Direction.BUY else opposite_order.user_id
+            )
+            seller_id = (
+                user_id if order.direction == Direction.SELL else opposite_order.user_id
+            )
+
+            await self.balance_service.execute_trade_atomic(
+                buyer_id, seller_id, ticker, match_qty, match_price
+            )
+
+            await self._update_order_filled_qty(order.id, order.filled_qty + match_qty)
+            await self._update_order_filled_qty(
+                opposite_order.id, opposite_order.filled_qty + match_qty
+            )
+
+            await self._record_transaction(ticker, match_qty, match_price)
+
+            order.filled_qty += match_qty
+            opposite_order.filled_qty += match_qty
+            remaining_qty -= match_qty
+            executed = True
+
+            if opposite_order.filled_qty >= opposite_order.qty:
+                await self._update_order_status(opposite_order.id, OrderStatus.EXECUTED)
+            else:
+                await self._update_order_status(
+                    opposite_order.id, OrderStatus.PARTIALLY_EXECUTED
+                )
+
+        if remaining_qty == 0:
+            await self._update_order_status(order.id, OrderStatus.EXECUTED)
+        elif executed:
+            await self._update_order_status(order.id, OrderStatus.PARTIALLY_EXECUTED)
+        else:
+            raise ValueError("Not enough liquidity for market order")
+
+    async def _execute_limit_order(self, order: OrderBase, user_id: uuid.UUID):
+        """Исполнение limit ордера"""
+        ticker = order.ticker
+        remaining_qty = order.qty
+
+        opposite_direction = (
+            Direction.SELL if order.direction == Direction.BUY else Direction.BUY
+        )
+
+        if order.direction == Direction.BUY:
+            matching_orders_stmt = (
+                select(orders_table)
+                .where(
+                    orders_table.c.ticker == ticker,
+                    orders_table.c.direction == Direction.SELL,
+                    orders_table.c.status.in_(
+                        [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]
+                    ),
+                    orders_table.c.price <= order.price,
+                    (orders_table.c.qty - orders_table.c.filled_qty) > 0,
+                )
+                .order_by(asc(orders_table.c.price), asc(orders_table.c.timestamp))
+            )
+        else:
+            matching_orders_stmt = (
+                select(orders_table)
+                .where(
+                    orders_table.c.ticker == ticker,
+                    orders_table.c.direction == Direction.BUY,
+                    orders_table.c.status.in_(
+                        [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]
+                    ),
+                    orders_table.c.price >= order.price,
+                    (orders_table.c.qty - orders_table.c.filled_qty) > 0,
+                )
+                .order_by(desc(orders_table.c.price), asc(orders_table.c.timestamp))
+            )
+
+        result = await self.db.execute(matching_orders_stmt)
+        matching_orders = [
+            OrderBase.model_validate(dict(row)) for row in result.mappings()
+        ]
+
+        if not matching_orders:
+            await self._update_order_status(order.id, OrderStatus.NEW)
+            return
+
+        for opposite_order in matching_orders:
+            if remaining_qty <= 0:
+                break
+
+            available_qty = opposite_order.qty - opposite_order.filled_qty
+            match_qty = min(remaining_qty, available_qty)
+            match_price = opposite_order.price
+
+            buyer_id = (
+                user_id if order.direction == Direction.BUY else opposite_order.user_id
+            )
+            seller_id = (
+                user_id if order.direction == Direction.SELL else opposite_order.user_id
+            )
+
+            await self.balance_service.execute_trade_atomic(
+                buyer_id, seller_id, ticker, match_qty, match_price
+            )
+
+            await self._update_order_filled_qty(order.id, order.filled_qty + match_qty)
+            await self._update_order_filled_qty(
+                opposite_order.id, opposite_order.filled_qty + match_qty
+            )
+
+            await self._record_transaction(ticker, match_qty, match_price)
+
+            order.filled_qty += match_qty
+            opposite_order.filled_qty += match_qty
+            remaining_qty -= match_qty
+
+            if opposite_order.filled_qty >= opposite_order.qty:
+                await self._update_order_status(opposite_order.id, OrderStatus.EXECUTED)
+            else:
+                await self._update_order_status(
+                    opposite_order.id, OrderStatus.PARTIALLY_EXECUTED
+                )
+
+        if order.filled_qty >= order.qty:
+            await self._update_order_status(order.id, OrderStatus.EXECUTED)
+        elif order.filled_qty > 0:
+            await self._update_order_status(order.id, OrderStatus.PARTIALLY_EXECUTED)
+        else:
+            await self._update_order_status(order.id, OrderStatus.NEW)
+
+    async def process_new_order(self, new_order_id: uuid.UUID):
+        """Обработка нового ордера - адаптер для совместимости"""
+        order = await self._get_order_details(new_order_id)
+        if not order:
+            logger.warning(f"Order {new_order_id} not found")
+            return
+
+        try:
+            await self.process_order(order, order.user_id)
+        except ValueError as e:
+            logger.error(f"Order {new_order_id} cancelled due to: {e}")
+            await self._update_order_status(new_order_id, OrderStatus.CANCELLED)
+        except Exception as e:
+            logger.error(f"System error processing order {new_order_id}: {e}")
+            raise
+
+    async def _update_order_status(self, order_id: uuid.UUID, status: OrderStatus):
+        """Обновить статус ордера"""
+        stmt = (
+            update(orders_table)
+            .where(orders_table.c.id == order_id)
+            .values(status=status)
+        )
+        await self.db.execute(stmt)
+
+    async def _update_order_filled_qty(self, order_id: uuid.UUID, filled_qty: int):
+        """Обновить количество исполненных акций в ордере"""
+        stmt = (
+            update(orders_table)
+            .where(orders_table.c.id == order_id)
+            .values(filled_qty=filled_qty)
+        )
+        await self.db.execute(stmt)
+
+    async def _record_transaction(self, ticker: str, qty: int, price: int):
+        """Записать транзакцию"""
+        stmt = insert(transactions_table).values(ticker=ticker, amount=qty, price=price)
+        await self.db.execute(stmt)

@@ -1,11 +1,15 @@
+import logging
 from typing import List
 
+from asyncpg.exceptions import UniqueViolationError
 from sqlalchemy import delete, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models.instruments import instruments_table
 from app.schemas.instrument import Instrument
+
+logger = logging.getLogger(__name__)
 
 
 class InstrumentService:
@@ -46,20 +50,37 @@ class InstrumentService:
             )
         )
         try:
-            result = await self.db.execute(insert_stmt)
-            created_instrument_row = result.mappings().one_or_none()
-
-            if created_instrument_row is None:
-                raise Exception("Instrument creation failed, no row returned.")
-
-            return Instrument.model_validate(created_instrument_row)
+            await self.db.execute(insert_stmt)
+            logger.info(f"Instrument '{instrument_data.ticker}' added successfully.")
+            return True
         except IntegrityError as e:
-            if "UNIQUE constraint failed: instruments.ticker" in str(
-                e
-            ) or "uq_instruments_ticker" in str(e):
+            error_detail = (
+                str(e.orig).lower()
+                if hasattr(e, "orig") and e.orig is not None
+                else str(e).lower()
+            )
+
+            is_pg_unique_violation = (
+                (hasattr(e, "orig") and isinstance(e.orig, UniqueViolationError))
+                or ("unique constraint" in error_detail and "violates" in error_detail)
+                or ("duplicate key value violates unique constraint" in error_detail)
+            )
+
+            is_sqlite_unique_violation = (
+                "unique constraint failed: instruments.ticker" in error_detail
+            )
+
+            if is_pg_unique_violation or is_sqlite_unique_violation:
+                logger.warning(
+                    f"Attempt to add duplicate instrument ticker: {instrument_data.ticker}"
+                )
                 raise ValueError(
                     f"Instrument with ticker '{instrument_data.ticker}' already exists."
                 )
+            logger.error(f"IntegrityError during instrument add: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during instrument add: {e}", exc_info=True)
             raise
 
     async def delete_instrument_by_ticker(self, ticker: str) -> bool:

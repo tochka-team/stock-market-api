@@ -14,7 +14,7 @@ class TransactionService:
     async def get_transactions_by_ticker(
         self,
         ticker: str,
-        limit: int = 10,
+        limit: int = 20,
     ) -> List[Transaction]:
         """
         Получает историю сделок (транзакций) для указанного тикера.

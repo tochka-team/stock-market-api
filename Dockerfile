@@ -27,7 +27,7 @@ COPY ./alembic /app/alembic
 COPY ./.env /app/.env
 COPY ./alembic.ini /app/alembic.ini
 
-EXPOSE 8000
+EXPOSE 8080
 
 COPY ./start.sh /app/start.sh
 RUN chmod +x /app/start.sh
