@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     """
 
     DATABASE_URL: str = (
-        "sqlite+aiosqlite:///./default_db_should_not_be_used.db"  # Запасное
+        "sqlite+aiosqlite:///./default_db_should_not_be_used.db"  
     )
 
     API_V1_STR: str = "/api/v1"

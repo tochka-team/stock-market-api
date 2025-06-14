@@ -65,9 +65,6 @@ orders_table = Table(
         onupdate=func.now(),
         nullable=False,
     ),
-    # Составной индекс для matching engine и стакана заявок
-    # Важно: порядок колонок в индексе имеет значение!
-    # Обычно: тикер, статус (чтобы отфильтровать неактивные), направление, цена (для сортировки).
     Index(
         "ix_orders_active_for_matching",
         "ticker",

@@ -10,14 +10,11 @@ from app.db.connection import check_db_connection, close_db_connection
 
 import os
 
-# Настройка логирования
 log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 log_level = logging.DEBUG
 
-# Создаем директорию для логов если её нет
 os.makedirs("/app/logs", exist_ok=True)
 
-# Настраиваем логирование в файл и консоль
 logging.basicConfig(
     level=log_level,
     format=log_format,

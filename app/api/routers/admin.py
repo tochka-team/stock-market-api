@@ -148,7 +148,6 @@ async def admin_withdraw_funds(
 ):
     balance_service = BalanceService(db)
     try:
-        # Withdraw не поддерживается в новой реализации
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail="Withdraw operation not implemented",

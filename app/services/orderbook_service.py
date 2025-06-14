@@ -20,7 +20,6 @@ class OrderBookService:
         Получить стакан заявок для указанного тикера, используя SQLAlchemy Core.
         """
         try:
-            # Проверяем существование инструмента
             instrument_exists_stmt = select(func.count(instruments_table.c.ticker)).where(
                 instruments_table.c.ticker == ticker
             )
@@ -29,31 +28,29 @@ class OrderBookService:
             if instrument_count == 0:
                 return None
 
-            # Получаем BUY ордера (bid levels) - СОРТИРОВКА ПО УБЫВАНИЮ ЦЕНЫ
             buy_stmt = (
                 select(orders_table.c.price, func.sum(orders_table.c.qty - orders_table.c.filled_qty).label("total_qty"))
                 .where(
                     orders_table.c.ticker == ticker,
                     orders_table.c.direction == Direction.BUY.value,
                     orders_table.c.status.in_([OrderStatus.NEW.value, OrderStatus.PARTIALLY_EXECUTED.value]),
-                    (orders_table.c.qty - orders_table.c.filled_qty) > 0  # Только с остатком
+                    (orders_table.c.qty - orders_table.c.filled_qty) > 0  
                 )
                 .group_by(orders_table.c.price)
-                .order_by(desc(orders_table.c.price))  # УБЫВАНИЕ для bid levels
+                .order_by(desc(orders_table.c.price))  
                 .limit(limit)
             )
 
-            # Получаем SELL ордера (ask levels) - СОРТИРОВКА ПО ВОЗРАСТАНИЮ ЦЕНЫ
             sell_stmt = (
                 select(orders_table.c.price, func.sum(orders_table.c.qty - orders_table.c.filled_qty).label("total_qty"))
                 .where(
                     orders_table.c.ticker == ticker,
                     orders_table.c.direction == Direction.SELL.value,
                     orders_table.c.status.in_([OrderStatus.NEW.value, OrderStatus.PARTIALLY_EXECUTED.value]),
-                    (orders_table.c.qty - orders_table.c.filled_qty) > 0  # Только с остатком
+                    (orders_table.c.qty - orders_table.c.filled_qty) > 0  
                 )
                 .group_by(orders_table.c.price)
-                .order_by(asc(orders_table.c.price))  # ВОЗРАСТАНИЕ для ask levels
+                .order_by(asc(orders_table.c.price))  
                 .limit(limit)
             )
 
@@ -63,7 +60,6 @@ class OrderBookService:
             asks_result = await self.db.execute(sell_stmt)
             ask_rows = asks_result.mappings().all()
 
-            # Формируем уровни для Pydantic схемы
             bid_levels = [
                 Level(price=row["price"], qty=row["total_qty"])
                 for row in bid_rows

@@ -1,4 +1,3 @@
-# app/schemas/order.py
 import uuid
 from datetime import datetime
 from enum import Enum

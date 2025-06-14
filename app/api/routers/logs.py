@@ -55,7 +55,6 @@ async def get_logs_endpoint(
     - offset: смещение для пагинации
     """
     try:
-        # Создаем объект запроса
         from datetime import datetime
         
         request = LogsRequest(
@@ -66,11 +65,9 @@ async def get_logs_endpoint(
             offset=offset,
         )
         
-        # Получаем логи через сервис
         logs_service = LogsService()
         logs, total_count = await logs_service.get_logs(request)
         
-        # Определяем есть ли еще записи
         has_more = (offset + limit) < total_count
         
         return LogsResponse(
@@ -117,21 +114,19 @@ async def get_recent_logs_endpoint(
     - level: фильтрация по уровню логирования
     """
     try:
-        # Создаем запрос для получения последних логов
         request = LogsRequest(
             level=level,
             limit=lines,
             offset=0,
         )
         
-        # Получаем логи через сервис
         logs_service = LogsService()
         logs, total_count = await logs_service.get_logs(request)
         
         return LogsResponse(
             logs=logs,
             total_count=total_count,
-            has_more=False  # Для tail всегда показываем что это последние записи
+            has_more=False  
         )
         
     except Exception as e:
@@ -179,7 +174,6 @@ async def get_raw_logs_endpoint(
     Иначе применяет фильтрацию по времени и уровню.
     """
     try:
-        # Если указан параметр lines, работаем как tail
         if lines:
             request = LogsRequest(
                 level=level,
@@ -187,7 +181,6 @@ async def get_raw_logs_endpoint(
                 offset=0,
             )
         else:
-            # Создаем объект запроса с фильтрацией
             from datetime import datetime
             
             request = LogsRequest(
@@ -198,11 +191,9 @@ async def get_raw_logs_endpoint(
                 offset=0,
             )
         
-        # Получаем логи через сервис
         logs_service = LogsService()
         logs, _ = await logs_service.get_logs(request)
         
-        # Формируем raw текст
         raw_logs = []
         for log_entry in logs:
             timestamp_str = log_entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
