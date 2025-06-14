@@ -20,37 +20,51 @@ class OrderBookService:
         Получить стакан заявок для указанного тикера, используя SQLAlchemy Core.
         """
         try:
-            instrument_exists_stmt = select(func.count(instruments_table.c.ticker)).where(
-                instruments_table.c.ticker == ticker
-            )
+            instrument_exists_stmt = select(
+                func.count(instruments_table.c.ticker)
+            ).where(instruments_table.c.ticker == ticker)
             instrument_count = await self.db.scalar(instrument_exists_stmt)
 
             if instrument_count == 0:
                 return None
 
             buy_stmt = (
-                select(orders_table.c.price, func.sum(orders_table.c.qty - orders_table.c.filled_qty).label("total_qty"))
+                select(
+                    orders_table.c.price,
+                    func.sum(orders_table.c.qty - orders_table.c.filled_qty).label(
+                        "total_qty"
+                    ),
+                )
                 .where(
                     orders_table.c.ticker == ticker,
                     orders_table.c.direction == Direction.BUY.value,
-                    orders_table.c.status.in_([OrderStatus.NEW.value, OrderStatus.PARTIALLY_EXECUTED.value]),
-                    (orders_table.c.qty - orders_table.c.filled_qty) > 0  
+                    orders_table.c.status.in_(
+                        [OrderStatus.NEW.value, OrderStatus.PARTIALLY_EXECUTED.value]
+                    ),
+                    (orders_table.c.qty - orders_table.c.filled_qty) > 0,
                 )
                 .group_by(orders_table.c.price)
-                .order_by(desc(orders_table.c.price))  
+                .order_by(desc(orders_table.c.price))
                 .limit(limit)
             )
 
             sell_stmt = (
-                select(orders_table.c.price, func.sum(orders_table.c.qty - orders_table.c.filled_qty).label("total_qty"))
+                select(
+                    orders_table.c.price,
+                    func.sum(orders_table.c.qty - orders_table.c.filled_qty).label(
+                        "total_qty"
+                    ),
+                )
                 .where(
                     orders_table.c.ticker == ticker,
                     orders_table.c.direction == Direction.SELL.value,
-                    orders_table.c.status.in_([OrderStatus.NEW.value, OrderStatus.PARTIALLY_EXECUTED.value]),
-                    (orders_table.c.qty - orders_table.c.filled_qty) > 0  
+                    orders_table.c.status.in_(
+                        [OrderStatus.NEW.value, OrderStatus.PARTIALLY_EXECUTED.value]
+                    ),
+                    (orders_table.c.qty - orders_table.c.filled_qty) > 0,
                 )
                 .group_by(orders_table.c.price)
-                .order_by(asc(orders_table.c.price))  
+                .order_by(asc(orders_table.c.price))
                 .limit(limit)
             )
 

@@ -57,6 +57,7 @@ class OrderBase(BaseModel):
 
 class MarketOrderResponse(BaseModel):
     """MarketOrder response - БЕЗ поля filled согласно OpenAPI спецификации"""
+
     id: uuid.UUID
     status: OrderStatus
     user_id: uuid.UUID
@@ -68,6 +69,7 @@ class MarketOrderResponse(BaseModel):
 
 class LimitOrderResponse(BaseModel):
     """LimitOrder response - С полем filled согласно OpenAPI спецификации"""
+
     id: uuid.UUID
     status: OrderStatus
     user_id: uuid.UUID

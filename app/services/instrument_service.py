@@ -1,16 +1,16 @@
-from typing import List
 import logging
+from typing import List
 
+from asyncpg.exceptions import UniqueViolationError
 from sqlalchemy import delete, insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
-from asyncpg.exceptions import UniqueViolationError
 
 from app.db.models.instruments import instruments_table
 from app.schemas.instrument import Instrument
 
-
 logger = logging.getLogger(__name__)
+
 
 class InstrumentService:
     def __init__(self, db: AsyncConnection):
@@ -54,16 +54,26 @@ class InstrumentService:
             logger.info(f"Instrument '{instrument_data.ticker}' added successfully.")
             return True
         except IntegrityError as e:
-            error_detail = str(e.orig).lower() if hasattr(e, 'orig') and e.orig is not None else str(e).lower()
+            error_detail = (
+                str(e.orig).lower()
+                if hasattr(e, "orig") and e.orig is not None
+                else str(e).lower()
+            )
 
-            is_pg_unique_violation = (hasattr(e, 'orig') and isinstance(e.orig, UniqueViolationError)) or \
-                                     ("unique constraint" in error_detail and "violates" in error_detail) or \
-                                     ("duplicate key value violates unique constraint" in error_detail)
+            is_pg_unique_violation = (
+                (hasattr(e, "orig") and isinstance(e.orig, UniqueViolationError))
+                or ("unique constraint" in error_detail and "violates" in error_detail)
+                or ("duplicate key value violates unique constraint" in error_detail)
+            )
 
-            is_sqlite_unique_violation = "unique constraint failed: instruments.ticker" in error_detail
+            is_sqlite_unique_violation = (
+                "unique constraint failed: instruments.ticker" in error_detail
+            )
 
             if is_pg_unique_violation or is_sqlite_unique_violation:
-                logger.warning(f"Attempt to add duplicate instrument ticker: {instrument_data.ticker}")
+                logger.warning(
+                    f"Attempt to add duplicate instrument ticker: {instrument_data.ticker}"
+                )
                 raise ValueError(
                     f"Instrument with ticker '{instrument_data.ticker}' already exists."
                 )

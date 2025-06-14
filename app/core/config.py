@@ -24,9 +24,7 @@ class Settings(BaseSettings):
     которое мы только что (возможно) пополнили/перезаписали из .env.
     """
 
-    DATABASE_URL: str = (
-        "sqlite+aiosqlite:///./default_db_should_not_be_used.db"  
-    )
+    DATABASE_URL: str = "sqlite+aiosqlite:///./default_db_should_not_be_used.db"
 
     API_V1_STR: str = "/api/v1"
 

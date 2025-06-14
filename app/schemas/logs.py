@@ -30,4 +30,4 @@ class LogsRequest(BaseModel):
 class LogsResponse(BaseModel):
     logs: List[LogEntry]
     total_count: int
-    has_more: bool 
+    has_more: bool

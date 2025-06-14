@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -7,8 +8,6 @@ from fastapi import FastAPI
 from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.db.connection import check_db_connection, close_db_connection
-
-import os
 
 log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 log_level = logging.DEBUG
@@ -19,9 +18,9 @@ logging.basicConfig(
     level=log_level,
     format=log_format,
     handlers=[
-        logging.FileHandler("/app/logs/app.log", encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+        logging.FileHandler("/app/logs/app.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
 )
 
 logger = logging.getLogger(__name__)

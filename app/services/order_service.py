@@ -1,7 +1,7 @@
 import logging
 import uuid
-from typing import List, Optional, Union
 from datetime import datetime, timezone
+from typing import List, Optional, Union
 
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -154,7 +154,7 @@ class OrderService:
         order_base = OrderBase(
             id=order_id_obj,
             user_id=user_id_obj,
-            timestamp=datetime.now(timezone.utc),  
+            timestamp=datetime.now(timezone.utc),
             direction=order_data.direction,
             ticker=order_data.ticker,
             qty=order_data.qty,
@@ -166,7 +166,9 @@ class OrderService:
         try:
             await self.matching_engine.process_order(order_base, user_id_obj)
         except ValueError as e:
-            logger.info(f"Order {order_id_obj} processing completed with business logic error: {e}")
+            logger.info(
+                f"Order {order_id_obj} processing completed with business logic error: {e}"
+            )
         except Exception as e:
             logger.error(f"System error during order matching for {order_id_obj}: {e}")
 
@@ -218,10 +220,12 @@ class OrderService:
         if order.status not in [OrderStatus.NEW, OrderStatus.PARTIALLY_EXECUTED]:
             raise ValueError(f"Cannot cancel order with status {order.status}")
 
-        update_stmt = update(orders_table).where(
-            orders_table.c.id == order_id
-        ).values(status=OrderStatus.CANCELLED)
-        
+        update_stmt = (
+            update(orders_table)
+            .where(orders_table.c.id == order_id)
+            .values(status=OrderStatus.CANCELLED)
+        )
+
         await self.db.execute(update_stmt)
 
         logger.info(f"Cancelled order {order_id} for user {current_user.id}")

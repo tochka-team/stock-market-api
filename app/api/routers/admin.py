@@ -146,7 +146,7 @@ async def admin_withdraw_funds(
     request_data: AdminBalanceChangeRequest,
     db: AsyncConnection = Depends(get_db_connection),
 ):
-    balance_service = BalanceService(db)
+    BalanceService(db)
     try:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,

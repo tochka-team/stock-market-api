@@ -45,14 +45,17 @@ async def create_order_endpoint(
         )
         return response
     except ValueError as e:
-        logger.warning(f"Business logic error creating order for user {current_user.id}: {e}")
+        logger.warning(
+            f"Business logic error creating order for user {current_user.id}: {e}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Could not create order: {str(e)}",
         )
     except Exception as e:
         logger.error(
-            f"System error creating order for user {current_user.id}: {e}", exc_info=True
+            f"System error creating order for user {current_user.id}: {e}",
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
