@@ -201,7 +201,23 @@ class MatchingEngine:
 
                 # Отслеживаем потраченные средства для market BUY orders
                 if is_market_buy and current_new_order_state.user_id == buyer_id:
-                    total_spent += trade_qty * trade_price
+                    trade_cost = trade_qty * trade_price
+                    total_spent += trade_cost
+                    
+                    # НЕМЕДЛЕННО корректируем заблокированные средства после каждой сделки
+                    current_rub_balance = await self.balance_service._get_or_create_balance_record(
+                        current_new_order_state.user_id, "RUB", create_if_not_exists=False
+                    )
+                    if current_rub_balance and current_rub_balance["locked_amount"] >= trade_cost:
+                        # Уменьшаем locked amount на потраченную сумму
+                        await self.balance_service.unblock_funds(
+                            user_id=current_new_order_state.user_id,
+                            ticker="RUB",
+                            amount=trade_cost,
+                        )
+                        logger.info(f"Market BUY order {new_order_id}: released {trade_cost} RUB from locked amount after trade")
+                    else:
+                        logger.warning(f"Market BUY order {new_order_id}: insufficient locked RUB to release {trade_cost}")
 
                 transaction_id = uuid.uuid4()
                 insert_tx_stmt = insert(transactions_table).values(
@@ -283,19 +299,23 @@ class MatchingEngine:
                 )
                 raise
                 
-        # Возвращаем неиспользованные средства для market BUY orders
-        if is_market_buy and original_locked_amount > 0:
-            unused_amount = original_locked_amount - total_spent
-            if unused_amount > 0:
-                logger.info(f"Returning {unused_amount} unused RUB for market BUY order {new_order_id}")
+        # Возвращаем оставшиеся неиспользованные средства для market BUY orders
+        if is_market_buy:
+            # Получаем текущий locked amount (он уже был скорректирован после каждой сделки)
+            current_rub_balance = await self.balance_service._get_or_create_balance_record(
+                current_new_order_state.user_id, "RUB", create_if_not_exists=False
+            )
+            if current_rub_balance and current_rub_balance["locked_amount"] > 0:
+                remaining_locked = current_rub_balance["locked_amount"]
+                logger.info(f"Returning {remaining_locked} remaining unused RUB for market BUY order {new_order_id}")
                 try:
                     await self.balance_service.unblock_funds(
                         user_id=current_new_order_state.user_id,
                         ticker="RUB",
-                        amount=unused_amount,
+                        amount=remaining_locked,
                     )
                 except Exception as e:
-                    logger.error(f"Failed to return unused funds for order {new_order_id}: {e}")
+                    logger.error(f"Failed to return remaining unused funds for order {new_order_id}: {e}")
                     
         logger.info(
             f"MatchingEngine: Finished processing for order {new_order_id}. Final status: {current_new_order_state.status if current_new_order_state else 'N/A'}, Filled: {current_new_order_state.filled_qty if current_new_order_state else 'N/A'}"

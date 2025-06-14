@@ -370,7 +370,7 @@ class OrderService:
         )
         result = await self.db.execute(update_stmt)
         updated_id = result.scalar_one_or_none()
-        
+
         if updated_id:
             logger.info(f"Order {order_id} successfully cancelled and funds unblocked by user {user_id}.")
             return True

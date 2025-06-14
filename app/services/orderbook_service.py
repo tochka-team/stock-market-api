@@ -25,7 +25,7 @@ class OrderBookService:
                 instruments_table.c.ticker == ticker
             )
             instrument_count = await self.db.scalar(instrument_exists_stmt)
-            
+
             if instrument_count == 0:
                 return None
 

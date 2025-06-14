@@ -176,7 +176,7 @@ class BalanceService:
         if available_amount < amount:
             logger.error(f"Insufficient available balance for user {user_id}, ticker {ticker} to block {amount}. Available: {available_amount}, Required: {amount}")
             return False
-        
+
         # ATOMIC UPDATE: блокируем средства
         new_locked_amount = balance.locked_amount + amount
         new_available_amount = balance.amount - new_locked_amount
@@ -372,6 +372,10 @@ class BalanceService:
             
         if seller_ticker_balance.locked_amount < trade_qty:
             raise Exception(f"Seller {seller_id} insufficient locked {ticker} for trade. Required: {trade_qty}, Locked: {seller_ticker_balance.locked_amount}, Available: {seller_ticker_balance.amount - seller_ticker_balance.locked_amount}.")
+            
+        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: У продавца должно быть достаточно общего количества активов
+        if seller_ticker_balance.amount < trade_qty:
+            raise Exception(f"Seller {seller_id} insufficient total {ticker} for trade. Required: {trade_qty}, Total: {seller_ticker_balance.amount}.")
         
         # АТОМАРНЫЕ ОБНОВЛЕНИЯ
         total_rub_cost = trade_qty * trade_price
@@ -385,7 +389,10 @@ class BalanceService:
         # 3. Уменьшаем заблокированные активы у продавца
         await self._update_balance(seller_id, ticker, "locked_decrease", trade_qty)
         
-        # 4. Увеличиваем RUB у продавца
+        # 4. КРИТИЧЕСКИ ВАЖНО: Уменьшаем общее количество активов у продавца
+        await self._update_balance(seller_id, ticker, "amount_decrease", trade_qty)
+        
+        # 5. Увеличиваем RUB у продавца
         await self._update_balance(seller_id, "RUB", "amount_increase", total_rub_cost)
         
         logger.info(f"Successfully executed trade of {ticker}, qty {trade_qty}, price {trade_price} between buyer {buyer_id} and seller {seller_id}")
